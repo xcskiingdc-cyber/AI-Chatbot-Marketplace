@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useContext } from 'react';
+import React, { useState, useCallback, useMemo, useContext, useEffect } from 'react';
 import useLocalStorage from './hooks/useLocalStorage';
 import type { Character, ChatMessage, AppView, UserProfile, User } from './types';
 import { AuthProvider, AuthContext } from './context/AuthContext';
@@ -11,6 +11,10 @@ import ProfileView from './components/ProfileView';
 import LoginModal from './components/LoginModal';
 import ProfileEditModal from './components/ProfileEditModal';
 import NSFWConfirmationModal from './components/NSFWConfirmationModal';
+import CharacterDetailModal from './components/CharacterDetailModal';
+import NotificationsView from './components/NotificationsView';
+import CreatorProfileModal from './components/CreatorProfileModal';
+import AdminSettingsView from './components/AdminSettingsView';
 
 
 const MainApp: React.FC = () => {
@@ -19,13 +23,34 @@ const MainApp: React.FC = () => {
   const [isProfileEditModalOpen, setProfileEditModalOpen] = useState(false);
   const [isNsfwModalOpen, setNsfwModalOpen] = useState(false);
   const [showNSFW, setShowNSFW] = useLocalStorage('ai-showNSFW', false);
+  const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
+  const [selectedCreator, setSelectedCreator] = useState<User | null>(null);
+  
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchBy, setSearchBy] = useState<'character' | 'creator'>('character');
+  const [sortOrder, setSortOrder] = useState('newest');
 
   
   const auth = useContext(AuthContext);
   if (!auth) {
     throw new Error("AuthContext not found");
   }
-  const { currentUser, characters, chatHistories, saveCharacter, updateChatHistory, updateUserProfile, toggleFavorite, deleteChatHistory } = auth;
+  const { currentUser, allUsers, characters, chatHistories, saveCharacter, updateChatHistory, updateUserProfile, toggleFavorite, deleteChatHistory, likeCharacter, addComment, followUser, markNotificationsAsRead, findUserById } = auth;
+
+  useEffect(() => {
+    if (selectedCharacter) {
+      const updatedCharacter = characters.find(c => c.id === selectedCharacter.id);
+      if (updatedCharacter) {
+        // This ensures the modal gets the latest data (likes, comments)
+        if (JSON.stringify(updatedCharacter) !== JSON.stringify(selectedCharacter)) {
+            setSelectedCharacter(updatedCharacter);
+        }
+      } else {
+        // Character was likely deleted, so close the modal
+        setSelectedCharacter(null);
+      }
+    }
+  }, [characters, selectedCharacter]);
 
   const handleSaveCharacter = (characterData: Omit<Character, 'creatorId'> & { creatorId?: string }) => {
     if (!currentUser) {
@@ -46,9 +71,12 @@ const MainApp: React.FC = () => {
   }
 
   const navigate = (newView: AppView) => {
-    const protectedViews: AppView['type'][] = ['PROFILE', 'RECENT_CHATS', 'CREATE_CHARACTER'];
+    const protectedViews: AppView['type'][] = ['PROFILE', 'RECENT_CHATS', 'CREATE_CHARACTER', 'NOTIFICATIONS', 'ADMIN_SETTINGS'];
     if (protectedViews.includes(newView.type) && !currentUser) {
         setLoginModalOpen(true);
+    } else if (newView.type === 'ADMIN_SETTINGS' && currentUser?.userType !== 'Admin') {
+        // Prevent non-admins from accessing admin settings
+        setView({ type: 'HOME' });
     } else {
         setView(newView);
     }
@@ -106,12 +134,44 @@ const MainApp: React.FC = () => {
         setNsfwModalOpen(false);
     };
 
+    const publicCharacters = useMemo(() => {
+        return characters.filter(c => c.isPublic && !c.isSilencedByAdmin);
+    }, [characters]);
+
     const filteredCharacters = useMemo(() => {
-        if (showNSFW && isUserAdult) {
-          return characters;
+        let chars = publicCharacters;
+
+        if (!showNSFW || !isUserAdult) {
+            chars = chars.filter(c => !c.isNSFW);
         }
-        return characters.filter(c => !c.isNSFW);
-    }, [characters, showNSFW, isUserAdult]);
+
+        if (searchTerm) {
+            const lowerSearchTerm = searchTerm.toLowerCase();
+            chars = chars.filter(c => {
+                 if (searchBy === 'character') {
+                    return c.name.toLowerCase().includes(lowerSearchTerm) ||
+                           c.description.toLowerCase().includes(lowerSearchTerm);
+                } else { // search by creator
+                    const creator = findUserById(c.creatorId);
+                    return creator?.profile.name.toLowerCase().includes(lowerSearchTerm);
+                }
+            });
+        }
+
+        switch (sortOrder) {
+            case 'popular':
+                return chars.sort((a, b) => (b.likes?.length || 0) - (a.likes?.length || 0));
+            case 'newest':
+                 const sorted = [...chars].sort((a, b) => {
+                    const aIndex = characters.findIndex(char => char.id === a.id);
+                    const bIndex = characters.findIndex(char => char.id === b.id);
+                    return bIndex - aIndex;
+                });
+                return sorted;
+            default:
+                return chars;
+        }
+    }, [publicCharacters, showNSFW, isUserAdult, searchTerm, sortOrder, characters, searchBy, findUserById]);
 
 
   const renderContent = () => {
@@ -127,31 +187,78 @@ const MainApp: React.FC = () => {
             setView({ type: 'HOME' });
             return null;
         }
-        const history = (currentUser && chatHistories[currentUser.id]?.[currentCharacterForView.id]) || (currentCharacterForView.greeting ? [{id: crypto.randomUUID(), sender: 'bot', text: currentCharacterForView.greeting, timestamp: Date.now()}] : []);
+        const history = (currentUser && chatHistories[currentUser.id]?.[currentCharacterForView.id]) || [];
         return <ChatView character={currentCharacterForView} chatHistory={history} updateChatHistory={updateChatHistory} />;
       case 'RECENT_CHATS':
         return currentUser ? <RecentChatsView characters={characters} userChatHistories={chatHistories[currentUser.id] || {}} setView={setView} deleteChatHistory={deleteChatHistory} /> : null;
       case 'PROFILE':
-        return currentUser ? <ProfileView user={currentUser} characters={myCharacters} favoriteCharacters={favoriteCharacters} setView={setView} onEditProfile={() => setProfileEditModalOpen(true)} toggleFavorite={toggleFavorite} /> : null;
+        return currentUser ? <ProfileView user={currentUser} myCharacters={myCharacters} favoriteCharacters={favoriteCharacters} setView={setView} onEditProfile={() => setProfileEditModalOpen(true)} toggleFavorite={toggleFavorite} onCharacterClick={setSelectedCharacter} /> : null;
+      case 'NOTIFICATIONS':
+        return currentUser ? <NotificationsView user={currentUser} setView={setView} onCharacterClick={setSelectedCharacter} markNotificationsAsRead={markNotificationsAsRead} /> : null;
+      case 'ADMIN_SETTINGS':
+        return (currentUser?.userType === 'Admin') ? <AdminSettingsView /> : <p>Access Denied</p>;
       case 'HOME':
       default:
         return (
           <>
-            {currentUser && isUserAdult && (
-              <div className="max-w-7xl mx-auto px-4 md:px-8 py-4 flex justify-end">
-                  <label htmlFor="nsfw-toggle" className="flex items-center cursor-pointer">
-                      <div className="mr-3 text-gray-300 font-medium">
-                          Show NSFW Characters
-                      </div>
-                      <div className="relative">
-                          <input type="checkbox" id="nsfw-toggle" checked={showNSFW} onChange={handleNsfwToggle} className="sr-only" />
-                          <div className={`block w-14 h-8 rounded-full ${showNSFW ? 'bg-pink-600' : 'bg-gray-600'}`}></div>
-                          <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${showNSFW ? 'transform translate-x-6' : ''}`}></div>
-                      </div>
-                  </label>
+            <div className="max-w-7xl mx-auto px-4 md:px-8 py-4 w-full">
+              <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
+                <div className="flex items-center gap-2 w-full md:w-1/2">
+                    <div className="relative flex-grow">
+                        <input 
+                            type="text"
+                            placeholder="Search..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-md py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        />
+                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
+                        </div>
+                    </div>
+                     <select
+                        value={searchBy}
+                        onChange={(e) => setSearchBy(e.target.value as 'character' | 'creator')}
+                        className="bg-gray-800 border border-gray-700 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      >
+                        <option value="character">By Character</option>
+                        <option value="creator">By Creator</option>
+                      </select>
+                </div>
+                <div className="flex items-center gap-4">
+                  <select
+                    value={sortOrder}
+                    onChange={(e) => setSortOrder(e.target.value)}
+                    className="bg-gray-800 border border-gray-700 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  >
+                    <option value="newest">Newest</option>
+                    <option value="popular">Most Popular</option>
+                  </select>
+                  {currentUser && isUserAdult && (
+                    <label htmlFor="nsfw-toggle" className="flex items-center cursor-pointer">
+                        <div className="mr-3 text-gray-300 font-medium hidden sm:block">
+                            Show NSFW
+                        </div>
+                        <div className="relative">
+                            <input type="checkbox" id="nsfw-toggle" checked={showNSFW} onChange={handleNsfwToggle} className="sr-only" />
+                            <div className={`block w-14 h-8 rounded-full ${showNSFW ? 'bg-pink-600' : 'bg-gray-600'}`}></div>
+                            <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${showNSFW ? 'transform translate-x-6' : ''}`}></div>
+                        </div>
+                    </label>
+                  )}
+                </div>
               </div>
-            )}
-            <CharacterGrid characters={filteredCharacters} setView={setView} showControls={false} currentUser={currentUser} toggleFavorite={toggleFavorite} />
+            </div>
+            <CharacterGrid 
+                characters={filteredCharacters} 
+                setView={setView} 
+                onCharacterClick={setSelectedCharacter} 
+                showControls={false} 
+                currentUser={currentUser} 
+                toggleFavorite={toggleFavorite} 
+                findUserById={findUserById}
+                onCreatorClick={setSelectedCreator}
+             />
           </>
         );
     }
@@ -166,6 +273,29 @@ const MainApp: React.FC = () => {
       {isLoginModalOpen && <LoginModal onClose={() => setLoginModalOpen(false)} />}
       {isProfileEditModalOpen && currentUser && <ProfileEditModal userProfile={currentUser.profile} onSave={handleSaveProfile} onCancel={() => setProfileEditModalOpen(false)} />}
       {isNsfwModalOpen && <NSFWConfirmationModal onConfirm={confirmNsfw} onCancel={cancelNsfw} />}
+      {selectedCharacter && currentUser && (
+        <CharacterDetailModal 
+            character={selectedCharacter}
+            creator={findUserById(selectedCharacter.creatorId)}
+            currentUser={currentUser}
+            onClose={() => setSelectedCharacter(null)}
+            onStartChat={(charId) => {
+                setSelectedCharacter(null);
+                setView({type: 'CHAT', characterId: charId});
+            }}
+            onLike={likeCharacter}
+            onFollow={followUser}
+            onAddComment={addComment}
+        />
+      )}
+       {selectedCreator && currentUser && (
+        <CreatorProfileModal 
+            creator={selectedCreator}
+            currentUser={currentUser}
+            onClose={() => setSelectedCreator(null)}
+            onFollow={followUser}
+        />
+       )}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import type { ChatMessage, Character, User } from '../types';
-import { EditIcon, DeleteIcon, SaveIcon, CancelIcon, SoundOnIcon } from './Icons';
+import { EditIcon, DeleteIcon, SaveIcon, CancelIcon, SoundOnIcon, RewindIcon } from './Icons';
 import Avatar from './Avatar';
 
 interface MessageProps {
@@ -12,9 +12,10 @@ interface MessageProps {
   onUpdate: (messageId: string, newText: string) => void;
   onDelete: (messageId:string) => void;
   onPlayTTS: (text: string) => void;
+  onRewind: (messageId: string) => void;
 }
 
-const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, onDelete, onPlayTTS }) => {
+const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, onDelete, onPlayTTS, onRewind }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(message.text);
 
@@ -42,6 +43,7 @@ const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, o
             {!isEditing && (
                 <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     {isBot && <button onClick={() => onPlayTTS(message.text)} className="p-1 text-gray-400 hover:text-white"><SoundOnIcon className="w-4 h-4" /></button>}
+                    <button onClick={() => onRewind(message.id)} className="p-1 text-gray-400 hover:text-white" title="Rewind to here"><RewindIcon className="w-4 h-4" /></button>
                     <button onClick={() => setIsEditing(true)} className="p-1 text-gray-400 hover:text-white"><EditIcon className="w-4 h-4" /></button>
                     <button onClick={() => onDelete(message.id)} className="p-1 text-gray-400 hover:text-white"><DeleteIcon className="w-4 h-4" /></button>
                 </div>

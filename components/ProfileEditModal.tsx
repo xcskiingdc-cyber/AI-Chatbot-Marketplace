@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../types';
-import { CloseIcon, UploadIcon } from './Icons';
+import { CloseIcon, UploadIcon, DeleteIcon } from './Icons';
 import { saveImage } from '../services/dbService';
 
 interface ProfileEditModalProps {
@@ -39,15 +38,21 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
         const file = e.target.files[0];
         setSelectedFile(file);
         
-        // Clean up old preview URL if it exists
         if (previewUrl && previewUrl.startsWith('blob:')) {
             URL.revokeObjectURL(previewUrl);
         }
 
-        // Create a new temporary URL for immediate preview
         setPreviewUrl(URL.createObjectURL(file));
     }
   };
+  
+  const handleRemoveAvatar = () => {
+      setSelectedFile(null);
+      if (previewUrl && previewUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(previewUrl);
+      }
+      setPreviewUrl(null); // This will show the placeholder
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,12 +68,16 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
             alert("Error saving profile picture. Please try again.");
             return;
         }
+    } else if (previewUrl === null) {
+      // Avatar was removed
+      finalProfileData.avatarUrl = `https://i.pravatar.cc/150?u=${profile.name}`;
     }
     onSave(finalProfileData);
   };
   
   const formFieldClasses = "w-full p-2 bg-gray-800 border border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500 text-gray-200";
   const labelClasses = "block text-sm font-medium text-pink-400 mb-2";
+  const defaultAvatar = `https://i.pravatar.cc/150?u=${profile.name}`;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
@@ -80,6 +89,23 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
             </button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
+            <div>
+                <label className={labelClasses}>Avatar</label>
+                <div className="flex items-center space-x-4">
+                    <img src={previewUrl || defaultAvatar} alt="avatar" className="w-24 h-24 rounded-full object-cover ring-2 ring-gray-700"/>
+                    <div className="flex flex-col gap-2">
+                        <label htmlFor="profile-avatar-upload" className="cursor-pointer bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md inline-flex items-center gap-2">
+                            <UploadIcon className="w-5 h-5" />
+                            <span>Change</span>
+                        </label>
+                        <input id="profile-avatar-upload" type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
+                        <button type="button" onClick={handleRemoveAvatar} className="bg-red-800 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md inline-flex items-center gap-2">
+                            <DeleteIcon className="w-5 h-5" />
+                            <span>Remove</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
             <div>
                 <label htmlFor="name" className={labelClasses}>User Name *</label>
                 <input type="text" id="name" name="name" value={profile.name} onChange={handleChange} className={formFieldClasses} required />
@@ -100,18 +126,6 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
                 <label htmlFor="birthday" className={labelClasses}>Birthday</label>
                 <input type="date" id="birthday" name="birthday" value={profile.birthday} onChange={handleChange} className={formFieldClasses} />
                 <p className="text-xs text-gray-500 mt-1">Only you can see this, will help with recommendations.</p>
-            </div>
-
-            <div>
-                <label className={labelClasses}>Avatar</label>
-                <div className="flex items-center space-x-4">
-                    <img src={previewUrl || `https://i.pravatar.cc/150?u=${userProfile.name}`} alt="avatar" className="w-20 h-20 rounded-full object-cover ring-2 ring-gray-700"/>
-                    <label htmlFor="profile-avatar-upload" className="cursor-pointer bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md inline-flex items-center gap-2">
-                        <UploadIcon className="w-5 h-5" />
-                        <span>Change</span>
-                    </label>
-                    <input id="profile-avatar-upload" type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
-                </div>
             </div>
 
              <div>
