@@ -1,3 +1,4 @@
+
 import React, { useContext, useState, useMemo } from 'react';
 import type { Character, AppView, User } from '../types';
 import CharacterGrid from './CharacterGrid';
@@ -53,27 +54,29 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, myCharacters, favoriteC
     setCharToDelete(null);
   };
 
+  const formFieldClasses = "w-full sm:w-auto bg-[--bg-secondary] border border-[--border-color] rounded-md py-2 px-4 focus:outline-none focus:ring-1 focus:ring-[--accent-primary]";
+
 
   return (
-    <div className="bg-gray-950 min-h-full">
-        <div className="p-8 bg-gray-900">
-            <div className="flex items-center space-x-6 max-w-7xl mx-auto relative">
+    <div className="bg-[--bg-primary] min-h-full">
+        <div className="p-4 sm:p-8 bg-[--bg-secondary] border-b border-[--border-color]">
+            <div className="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-6 max-w-7xl mx-auto relative">
                 <Avatar 
                     imageId={user.profile.avatarUrl} 
                     alt="User profile" 
-                    className="w-24 h-24 md:w-32 md:h-32 rounded-full ring-4 ring-pink-500 object-cover"
+                    className="w-24 h-24 md:w-32 md:h-32 rounded-full ring-4 ring-[--accent-primary] object-cover"
                 />
-                <div>
-                    <h1 className="text-3xl md:text-4xl font-bold text-white">{user.profile.name}</h1>
-                    <p className="text-gray-400 mt-2">{user.profile.bio || "No bio set."}</p>
+                <div className="text-center sm:text-left">
+                    <h1 className="text-3xl md:text-4xl font-bold text-[--text-primary]">{user.profile.name}</h1>
+                    <p className="text-[--text-secondary] mt-2">{user.profile.bio || "No bio set."}</p>
                     {user.isSilenced && <p className="mt-2 px-3 py-1 text-sm bg-yellow-900/50 text-yellow-300 rounded-full inline-block">This user is silenced.</p>}
                 </div>
                 <button 
                     onClick={onEditProfile}
-                    className="absolute top-0 right-0 mt-2 mr-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-md text-sm flex items-center gap-2"
+                    className="absolute top-0 right-0 px-3 py-2 bg-[--bg-tertiary] hover:bg-[--bg-hover] rounded-md text-sm flex items-center gap-2"
                 >
                     <EditIcon className="w-4 h-4" />
-                    Edit Profile
+                    <span className="hidden sm:inline">Edit Profile</span>
                 </button>
             </div>
         </div>
@@ -81,19 +84,19 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, myCharacters, favoriteC
         <div className="p-4 md:p-8">
             <div className="max-w-7xl mx-auto">
               <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-6">
-                  <h2 className="text-2xl font-bold text-white">My Characters</h2>
-                  <div className="flex items-center gap-4">
+                  <h2 className="text-2xl font-bold text-[--text-primary]">My Characters</h2>
+                  <div className="flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
                       <input 
                           type="text" 
                           placeholder="Search my characters..." 
                           value={myCharsSearch}
                           onChange={(e) => setMyCharsSearch(e.target.value)}
-                          className="bg-gray-800 border border-gray-700 rounded-md py-2 px-4 focus:outline-none focus:ring-1 focus:ring-pink-500"
+                          className={formFieldClasses}
                       />
                       <select 
                           value={myCharsVisibility}
                           onChange={(e) => setMyCharsVisibility(e.target.value)}
-                          className="bg-gray-800 border border-gray-700 rounded-md py-2 px-3 focus:outline-none focus:ring-1 focus:ring-pink-500"
+                          className={formFieldClasses}
                       >
                           <option value="all">All</option>
                           <option value="public">Public</option>
@@ -101,23 +104,23 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, myCharacters, favoriteC
                       </select>
                   </div>
               </div>
-              <CharacterGrid characters={filteredMyCharacters} setView={setView} onCharacterClick={onCharacterClick} showControls={true} currentUser={auth?.currentUser} toggleFavorite={toggleFavorite} onDelete={handleDeleteRequest} />
+              <CharacterGrid characters={filteredMyCharacters} setView={setView} onCharacterClick={onCharacterClick} showControls={true} currentUser={auth?.currentUser} toggleFavorite={toggleFavorite} onDelete={handleDeleteRequest} findUserById={auth?.findUserById} onCreatorClick={() => {}}/>
             </div>
         </div>
 
         <div className="p-4 md:p-8">
             <div className="max-w-7xl mx-auto">
                 <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-6">
-                    <h2 className="text-2xl font-bold text-white">Favorite Characters</h2>
+                    <h2 className="text-2xl font-bold text-[--text-primary]">Favorite Characters</h2>
                     <input 
                           type="text" 
                           placeholder="Search favorites..." 
                           value={favsSearch}
                           onChange={(e) => setFavsSearch(e.target.value)}
-                          className="bg-gray-800 border border-gray-700 rounded-md py-2 px-4 focus:outline-none focus:ring-1 focus:ring-pink-500"
+                          className={formFieldClasses}
                       />
                 </div>
-                <CharacterGrid characters={filteredFavoriteCharacters} setView={setView} onCharacterClick={onCharacterClick} showControls={false} currentUser={auth?.currentUser} toggleFavorite={toggleFavorite} />
+                <CharacterGrid characters={filteredFavoriteCharacters} setView={setView} onCharacterClick={onCharacterClick} showControls={false} currentUser={auth?.currentUser} toggleFavorite={toggleFavorite} findUserById={auth?.findUserById} onCreatorClick={() => {}}/>
             </div>
         </div>
 

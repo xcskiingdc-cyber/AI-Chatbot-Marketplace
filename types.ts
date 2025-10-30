@@ -1,3 +1,4 @@
+
 export enum LLMModel {
   GEMINI_FLASH = 'gemini-2.5-flash',
   GEMINI_PRO = 'gemini-2.5-pro',
@@ -12,6 +13,8 @@ export const TTSVoices = {
 } as const;
 
 export type TTSVoiceName = keyof typeof TTSVoices;
+
+export type Theme = 'light' | 'dark' | 'synthwave' | 'forest';
 
 export interface ChatSettings {
   model: LLMModel;
@@ -61,6 +64,10 @@ export interface User {
   isSilenced: boolean;
 }
 
+// Fields that can be dynamically included in the AI context
+export type CharacterContextField = 'gender' | 'description' | 'personality' | 'story' | 'situation' | 'feeling' | 'appearance';
+
+
 export interface Character {
   id: string;
   creatorId: string; // New field to link to a User
@@ -94,6 +101,12 @@ export interface GlobalSettings {
     sfwPrompt: string;
     nsfwPrompt: string;
 }
+
+export interface AIContextSettings {
+    includedFields: CharacterContextField[];
+    historyLength: number;
+}
+
 
 export type AppView = 
   | { type: 'HOME' }

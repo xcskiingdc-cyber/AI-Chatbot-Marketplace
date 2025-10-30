@@ -10,11 +10,10 @@ interface AvatarProps extends React.ImgHTMLAttributes<HTMLImageElement> {
 const Avatar: React.FC<AvatarProps> = ({ imageId, alt, ...props }) => {
     const imageUrl = useIndexedDBImage(imageId);
 
-    // Render a placeholder while the image is loading from IndexedDB
     if (!imageUrl) {
         return (
             <div 
-                className={`${props.className || ''} bg-gray-700 animate-pulse`}
+                className={`${props.className || ''} bg-[--bg-tertiary] animate-pulse`}
                 style={{
                     width: props.width,
                     height: props.height,

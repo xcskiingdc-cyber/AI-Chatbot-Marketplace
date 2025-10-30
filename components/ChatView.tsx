@@ -1,6 +1,6 @@
+
 import React, { useState, useEffect, useRef, useCallback, useContext, useMemo } from 'react';
-// FIX: Changed import type to allow LLMModel to be used as a value.
-import { type Character, type ChatMessage, type ChatSettings, LLMModel, type TTSVoiceName } from '../types';
+import { Character, ChatMessage, ChatSettings, LLMModel, TTSVoiceName } from '../types';
 import { getChatResponse, getTextToSpeech, getChatResponseStream } from '../services/geminiService';
 import Message from './Message';
 import { SendIcon, MicrophoneIcon, SettingsIcon } from './Icons';
@@ -22,7 +22,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const recognitionRef = useRef<any | null>(null); // Using `any` for SpeechRecognition for cross-browser compatibility
+  const recognitionRef = useRef<any | null>(null);
   
   const auth = useContext(AuthContext);
 
@@ -37,7 +37,6 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
 
     const finalSettings = { ...defaultSettings, ...savedSettings };
     
-    // Free users cannot use Pro model
     if (auth.currentUser.userType === 'Free' && finalSettings.model === LLMModel.GEMINI_PRO) {
         finalSettings.model = LLMModel.GEMINI_FLASH;
     }
@@ -50,7 +49,6 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
           return chatHistory;
       }
       if (character.greeting) {
-          // FIX: Explicitly type the greeting message to ensure it conforms to the ChatMessage interface.
           const greetingMessage: ChatMessage = { id: 'greeting-0', sender: 'bot', text: character.greeting, timestamp: Date.now() };
           return [greetingMessage];
       }
@@ -76,14 +74,11 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
         };
         
         recognition.onerror = (event: any) => {
-            // The 'no-speech' error is common if the user clicks the mic but doesn't speak.
-            // We can safely ignore it to avoid cluttering the console.
             if (event.error !== 'no-speech') {
                 console.error('Speech recognition error:', event.error);
             }
         };
 
-        // The onend event is the single source of truth for when recognition has stopped.
         recognition.onend = () => {
              setIsListening(false);
         }
@@ -95,12 +90,17 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
     if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     }
+    return audioContextRef.current;
   }, []);
 
   const playTTS = useCallback(async (text: string) => {
-    ensureAudioContext();
-    const audioContext = audioContextRef.current;
+    const audioContext = ensureAudioContext();
     if (!audioContext) return;
+    
+    // Browsers may suspend audio context until a user interaction.
+    if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+    }
 
     try {
         const base64Audio = await getTextToSpeech(text, userChatSettings.ttsVoice);
@@ -119,7 +119,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
 
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading || !auth?.currentUser) return;
+    if (!input.trim() || isLoading || !auth?.currentUser || !auth.aiContextSettings) return;
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -128,12 +128,11 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
       timestamp: Date.now(),
     };
 
-    // If this is the first message from the user, add the character's greeting to the official history first.
     const initialHistory = chatHistory.length > 0 ? chatHistory : (character.greeting ? [{
         id: crypto.randomUUID(),
         sender: 'bot' as const,
         text: character.greeting,
-        timestamp: Date.now() - 1 // ensure greeting is timestamped just before the user's message
+        timestamp: Date.now() - 1
     }] : []);
     
     const newHistory = [...initialHistory, userMessage];
@@ -145,17 +144,16 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
         const botMessage: ChatMessage = {
             id: crypto.randomUUID(),
             sender: 'bot',
-            text: '', // Start with empty text
+            text: '',
             timestamp: Date.now(),
         };
         updateChatHistory(character.id, [...newHistory, botMessage]);
         
         try {
-            const stream = getChatResponseStream(character, newHistory, auth.currentUser, auth.globalSettings, userChatSettings.model);
+            const stream = getChatResponseStream(character, newHistory, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.model);
             let fullText = '';
             for await (const chunk of stream) {
                 fullText += chunk;
-                // Find the last message and update its text
                 updateChatHistory(character.id, [...newHistory, { ...botMessage, text: fullText }]);
             }
         } catch (e) {
@@ -165,7 +163,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
             setIsLoading(false);
         }
     } else {
-        const botResponseText = await getChatResponse(character, newHistory, auth.currentUser, auth.globalSettings, userChatSettings.model);
+        const botResponseText = await getChatResponse(character, newHistory, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.model);
         const botMessage: ChatMessage = {
           id: crypto.randomUUID(),
           sender: 'bot',
@@ -198,13 +196,21 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   }
   
   const handleListen = () => {
-    if (isListening || !recognitionRef.current) return;
-    try {
-        recognitionRef.current.start();
-        setIsListening(true);
-    } catch (e) {
-        console.error("Could not start recognition", e);
-        alert("Voice recognition could not be started. Please check browser permissions.");
+    if (!recognitionRef.current) return;
+    if (isListening) {
+        recognitionRef.current.stop();
+    } else {
+        try {
+            recognitionRef.current.start();
+            setIsListening(true);
+        } catch (e) {
+            console.error("Could not start recognition", e);
+            if (e instanceof DOMException && e.name === 'NotAllowedError') {
+                alert("Microphone access was denied. Please allow microphone permissions in your browser settings to use voice input.");
+            } else {
+                alert("Voice recognition could not be started. Please check browser permissions.");
+            }
+        }
     }
   };
 
@@ -214,13 +220,13 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   }
 
   return (
-    <div className="flex flex-col h-full bg-gray-900">
-      <div className="p-4 border-b border-gray-800 flex items-center justify-between gap-4">
+    <div className="flex flex-col h-full bg-[--bg-primary]">
+      <div className="p-4 border-b border-[--border-color] flex items-center justify-between gap-4 flex-shrink-0">
         <div className="flex items-center gap-4 overflow-hidden">
-            <Avatar imageId={character.avatarUrl} alt={character.name} className="w-12 h-12 rounded-full object-cover flex-shrink-0" />
+            <Avatar imageId={character.avatarUrl} alt={character.name} className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover flex-shrink-0" />
             <div className="overflow-hidden">
-              <h2 className="text-xl font-bold truncate">{character.name}</h2>
-              <p className="text-sm text-gray-400 truncate">{character.situation}</p>
+              <h2 className="text-lg sm:text-xl font-bold truncate text-[--text-primary]">{character.name}</h2>
+              <p className="text-xs sm:text-sm text-[--text-secondary] truncate">{character.situation}</p>
             </div>
         </div>
       </div>
@@ -241,19 +247,19 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
             <div className="flex items-start gap-4 p-4">
                 <Avatar imageId={character.avatarUrl} alt={character.name} className="w-10 h-10 rounded-full object-cover" />
                 <div className="flex-1">
-                    <p className="font-bold">{character.name}</p>
-                    <div className="text-gray-300 mt-1 flex items-center space-x-2">
-                        <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
-                        <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse delay-75"></span>
-                        <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse delay-150"></span>
+                    <p className="font-bold text-[--text-primary]">{character.name}</p>
+                    <div className="text-[--text-primary] mt-1 flex items-center space-x-2">
+                        <span className="w-2 h-2 bg-[--accent-secondary] rounded-full animate-pulse"></span>
+                        <span className="w-2 h-2 bg-[--accent-secondary] rounded-full animate-pulse delay-75"></span>
+                        <span className="w-2 h-2 bg-[--accent-secondary] rounded-full animate-pulse delay-150"></span>
                     </div>
                 </div>
             </div>
         )}
         <div ref={messagesEndRef} />
       </div>
-      <div className="p-4 border-t border-gray-800 bg-gray-900">
-        <div className="flex items-center bg-gray-800 rounded-lg p-2 gap-2">
+      <div className="p-4 border-t border-[--border-color] bg-[--bg-primary] flex-shrink-0">
+        <div className="flex items-center bg-[--bg-secondary] rounded-lg p-2 gap-2">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -264,17 +270,17 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
                 }
             }}
             placeholder={auth?.currentUser ? `Message ${character.name}...` : 'Please log in to chat'}
-            className="flex-1 bg-transparent focus:outline-none resize-none px-2"
+            className="flex-1 bg-transparent focus:outline-none resize-none px-2 text-[--text-primary] max-h-32"
             rows={1}
             disabled={isLoading || !auth?.currentUser}
           />
-          <button onClick={handleListen} disabled={isLoading || isListening || !auth?.currentUser} className="p-2 rounded-full text-gray-400 hover:text-white disabled:text-gray-600 transition-colors">
-            <MicrophoneIcon className={`w-5 h-5 ${isListening ? 'text-red-500 animate-pulse' : ''}`} />
+          <button onClick={handleListen} disabled={isLoading || !auth?.currentUser} className="p-2 rounded-full text-[--text-secondary] hover:text-[--text-primary] disabled:text-[--bg-hover] transition-colors">
+            <MicrophoneIcon className={`w-5 h-5 ${isListening ? 'text-[--danger] animate-pulse' : ''}`} />
           </button>
-           <button onClick={() => setSettingsOpen(true)} disabled={!auth?.currentUser} className="p-2 rounded-full text-gray-400 hover:text-white disabled:text-gray-600 transition-colors">
+           <button onClick={() => setSettingsOpen(true)} disabled={!auth?.currentUser} className="p-2 rounded-full text-[--text-secondary] hover:text-[--text-primary] disabled:text-[--bg-hover] transition-colors">
             <SettingsIcon className="w-5 h-5" />
           </button>
-          <button onClick={handleSend} disabled={isLoading || !input.trim() || !auth?.currentUser} className="p-2 rounded-full bg-blue-600 disabled:bg-gray-600 hover:bg-blue-500 transition-colors">
+          <button onClick={handleSend} disabled={isLoading || !input.trim() || !auth?.currentUser} className="p-2 rounded-full bg-[--accent-secondary] disabled:bg-[--bg-tertiary] hover:bg-[--accent-secondary-hover] transition-colors">
             <SendIcon className="w-5 h-5 text-white" />
           </button>
         </div>

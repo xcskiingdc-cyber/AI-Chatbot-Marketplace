@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useMemo, useContext, useEffect } from 'react';
 import useLocalStorage from './hooks/useLocalStorage';
 import type { Character, ChatMessage, AppView, UserProfile, User } from './types';
@@ -29,24 +30,23 @@ const MainApp: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchBy, setSearchBy] = useState<'character' | 'creator'>('character');
   const [sortOrder, setSortOrder] = useState('newest');
+  const [filterByFollowing, setFilterByFollowing] = useState(false);
 
   
   const auth = useContext(AuthContext);
   if (!auth) {
     throw new Error("AuthContext not found");
   }
-  const { currentUser, allUsers, characters, chatHistories, saveCharacter, updateChatHistory, updateUserProfile, toggleFavorite, deleteChatHistory, likeCharacter, addComment, followUser, markNotificationsAsRead, findUserById } = auth;
+  const { currentUser, characters, chatHistories, saveCharacter, updateChatHistory, updateUserProfile, toggleFavorite, deleteChatHistory, likeCharacter, addComment, followUser, markNotificationsAsRead, findUserById } = auth;
 
   useEffect(() => {
     if (selectedCharacter) {
       const updatedCharacter = characters.find(c => c.id === selectedCharacter.id);
       if (updatedCharacter) {
-        // This ensures the modal gets the latest data (likes, comments)
         if (JSON.stringify(updatedCharacter) !== JSON.stringify(selectedCharacter)) {
             setSelectedCharacter(updatedCharacter);
         }
       } else {
-        // Character was likely deleted, so close the modal
         setSelectedCharacter(null);
       }
     }
@@ -75,7 +75,6 @@ const MainApp: React.FC = () => {
     if (protectedViews.includes(newView.type) && !currentUser) {
         setLoginModalOpen(true);
     } else if (newView.type === 'ADMIN_SETTINGS' && currentUser?.userType !== 'Admin') {
-        // Prevent non-admins from accessing admin settings
         setView({ type: 'HOME' });
     } else {
         setView(newView);
@@ -141,6 +140,11 @@ const MainApp: React.FC = () => {
     const filteredCharacters = useMemo(() => {
         let chars = publicCharacters;
 
+        if (filterByFollowing && currentUser) {
+            const followingIds = new Set(currentUser.profile.following);
+            chars = chars.filter(c => followingIds.has(c.creatorId));
+        }
+
         if (!showNSFW || !isUserAdult) {
             chars = chars.filter(c => !c.isNSFW);
         }
@@ -151,7 +155,7 @@ const MainApp: React.FC = () => {
                  if (searchBy === 'character') {
                     return c.name.toLowerCase().includes(lowerSearchTerm) ||
                            c.description.toLowerCase().includes(lowerSearchTerm);
-                } else { // search by creator
+                } else { 
                     const creator = findUserById(c.creatorId);
                     return creator?.profile.name.toLowerCase().includes(lowerSearchTerm);
                 }
@@ -171,7 +175,7 @@ const MainApp: React.FC = () => {
             default:
                 return chars;
         }
-    }, [publicCharacters, showNSFW, isUserAdult, searchTerm, sortOrder, characters, searchBy, findUserById]);
+    }, [publicCharacters, showNSFW, isUserAdult, searchTerm, sortOrder, characters, searchBy, findUserById, filterByFollowing, currentUser]);
 
 
   const renderContent = () => {
@@ -200,50 +204,58 @@ const MainApp: React.FC = () => {
       case 'HOME':
       default:
         return (
-          <>
-            <div className="max-w-7xl mx-auto px-4 md:px-8 py-4 w-full">
+          <div className="w-full">
+            <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 md:px-8 py-4 w-full">
               <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
-                <div className="flex items-center gap-2 w-full md:w-1/2">
-                    <div className="relative flex-grow">
+                <div className="flex items-center gap-2 w-full md:w-auto md:flex-grow">
+                    <div className="relative flex-grow max-w-sm">
                         <input 
                             type="text"
                             placeholder="Search..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-md py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                            className="w-full bg-[--bg-secondary] border border-[--border-color] rounded-md py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-[--accent-primary]"
                         />
                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
+                            <svg className="h-5 w-5 text-[--text-secondary]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
                         </div>
                     </div>
                      <select
                         value={searchBy}
                         onChange={(e) => setSearchBy(e.target.value as 'character' | 'creator')}
-                        className="bg-gray-800 border border-gray-700 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        className="bg-[--bg-secondary] border border-[--border-color] rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[--accent-primary]"
                       >
                         <option value="character">By Character</option>
                         <option value="creator">By Creator</option>
                       </select>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 flex-wrap justify-end">
                   <select
                     value={sortOrder}
                     onChange={(e) => setSortOrder(e.target.value)}
-                    className="bg-gray-800 border border-gray-700 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    className="bg-[--bg-secondary] border border-[--border-color] rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[--accent-primary]"
                   >
                     <option value="newest">Newest</option>
                     <option value="popular">Most Popular</option>
                   </select>
+                  {currentUser && (
+                    <label htmlFor="following-toggle" className="flex items-center cursor-pointer">
+                        <div className="relative">
+                            <input type="checkbox" id="following-toggle" checked={filterByFollowing} onChange={e => setFilterByFollowing(e.target.checked)} className="sr-only" />
+                            <div className={`block w-14 h-8 rounded-full ${filterByFollowing ? 'bg-[--accent-secondary]' : 'bg-[--bg-tertiary]'}`}></div>
+                            <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${filterByFollowing ? 'transform translate-x-6' : ''}`}></div>
+                        </div>
+                        <div className="ml-3 text-[--text-primary] font-medium hidden sm:block">Following</div>
+                    </label>
+                  )}
                   {currentUser && isUserAdult && (
                     <label htmlFor="nsfw-toggle" className="flex items-center cursor-pointer">
-                        <div className="mr-3 text-gray-300 font-medium hidden sm:block">
-                            Show NSFW
-                        </div>
                         <div className="relative">
                             <input type="checkbox" id="nsfw-toggle" checked={showNSFW} onChange={handleNsfwToggle} className="sr-only" />
-                            <div className={`block w-14 h-8 rounded-full ${showNSFW ? 'bg-pink-600' : 'bg-gray-600'}`}></div>
+                            <div className={`block w-14 h-8 rounded-full ${showNSFW ? 'bg-[--accent-primary]' : 'bg-[--bg-tertiary]'}`}></div>
                             <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${showNSFW ? 'transform translate-x-6' : ''}`}></div>
                         </div>
+                         <div className="ml-3 text-[--text-primary] font-medium hidden sm:block">NSFW</div>
                     </label>
                   )}
                 </div>
@@ -259,13 +271,13 @@ const MainApp: React.FC = () => {
                 findUserById={findUserById}
                 onCreatorClick={setSelectedCreator}
              />
-          </>
+          </div>
         );
     }
   };
 
   return (
-    <div className="flex flex-col h-screen font-sans bg-gray-950">
+    <div className="flex flex-col h-screen font-sans bg-[--bg-primary] text-[--text-primary]">
       <Navbar setView={navigate} />
       <main className="flex-1 flex flex-col overflow-y-auto">
         {renderContent()}

@@ -1,68 +1,125 @@
-import React, { useContext } from 'react';
-import type { AppView } from '../types';
+
+import React, { useContext, useState, useRef, useEffect } from 'react';
+import type { AppView, User } from '../types';
 import { AuthContext } from '../context/AuthContext';
-import { HomeIcon, PlusIcon, MessageIcon, UserIcon, LogoutIcon, BellIcon, SettingsIcon } from './Icons';
+import { HomeIcon, PlusIcon, MessageIcon, UserIcon, LogoutIcon, BellIcon, SettingsIcon, MenuIcon, CloseIcon } from './Icons';
+import Avatar from './Avatar';
+import ThemeSwitcher from './ThemeSwitcher';
 
 interface NavButtonProps {
     onClick: () => void;
     icon: React.ReactNode;
     text: string;
     notificationCount?: number;
+    isActive?: boolean;
 }
 
-const NavButton: React.FC<NavButtonProps> = ({ onClick, icon, text, notificationCount = 0 }) => (
-    <button onClick={onClick} className="relative flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-white transition-colors duration-200">
+const NavButton: React.FC<NavButtonProps> = ({ onClick, icon, text, notificationCount = 0, isActive = false }) => (
+    <button onClick={onClick} className={`relative flex items-center w-full text-left space-x-3 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${isActive ? 'bg-[--bg-hover] text-[--text-primary]' : 'text-[--text-secondary] hover:bg-[--bg-hover] hover:text-[--text-primary]'}`}>
         {icon}
         <span>{text}</span>
         {notificationCount > 0 && (
-            <span className="absolute top-0 right-0 -mt-1 -mr-1 flex h-5 w-5 items-center justify-center rounded-full bg-pink-600 text-xs font-bold text-white">
+            <span className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-[--accent-primary] text-xs font-bold text-white">
                 {notificationCount}
             </span>
         )}
     </button>
 );
 
-
 const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => {
   const auth = useContext(AuthContext);
+  const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isUserMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  
   const unreadNotifications = auth?.currentUser?.profile.notifications.filter(n => !n.isRead).length || 0;
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+            setUserMenuOpen(false);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+  
+  const navAction = (view: AppView) => {
+      setView(view);
+      setMobileMenuOpen(false);
+  }
+
+  const renderNavLinks = (isMobile = false) => (
+    <>
+      <NavButton onClick={() => navAction({ type: 'HOME' })} icon={<HomeIcon className="h-5 w-5" />} text="Home" />
+      {auth?.currentUser && (
+        <>
+          <NavButton onClick={() => navAction({ type: 'RECENT_CHATS' })} icon={<MessageIcon className="h-5 w-5" />} text="Recent Chats" />
+          <NavButton onClick={() => navAction({ type: 'CREATE_CHARACTER' })} icon={<PlusIcon className="h-5 w-5" />} text="Create" />
+          <NavButton onClick={() => navAction({ type: 'NOTIFICATIONS' })} icon={<BellIcon className="h-5 w-5" />} text="Notifications" notificationCount={unreadNotifications} />
+          {auth.currentUser.userType === 'Admin' && (
+            <NavButton onClick={() => navAction({ type: 'ADMIN_SETTINGS' })} icon={<SettingsIcon className="h-5 w-5" />} text="Admin Settings" />
+          )}
+        </>
+      )}
+       {!auth?.currentUser && isMobile && (
+           <NavButton onClick={() => navAction({ type: 'PROFILE' })} icon={<UserIcon className="h-5 w-5" />} text="Login" />
+       )}
+    </>
+  );
+
   return (
-    <header className="bg-gray-900 text-white border-b border-gray-800 sticky top-0 z-10">
+    <header className="bg-[--bg-secondary] text-[--text-primary] border-b border-[--border-color] sticky top-0 z-30">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          <div className="flex items-center space-x-8">
-            <h1 className="text-xl font-bold text-gray-100 cursor-pointer" onClick={() => setView({ type: 'HOME' })}>AI Chatbot Marketplace</h1>
+          <div className="flex items-center space-x-4">
+             <button onClick={() => setMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-[--text-secondary] hover:text-[--text-primary]">
+                 {isMobileMenuOpen ? <CloseIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}
+             </button>
+            <h1 className="text-xl font-bold cursor-pointer hover:text-[--accent-primary] transition-colors" onClick={() => setView({ type: 'HOME' })}>AI.Crush</h1>
             <nav className="hidden md:flex space-x-1">
-              <NavButton onClick={() => setView({ type: 'HOME' })} icon={<HomeIcon className="h-5 w-5" />} text="Home" />
-              {auth?.currentUser && (
-                  <>
-                    <NavButton onClick={() => setView({ type: 'PROFILE' })} icon={<UserIcon className="h-5 w-5" />} text="Profile" />
-                    <NavButton onClick={() => setView({ type: 'CREATE_CHARACTER' })} icon={<PlusIcon className="h-5 w-5" />} text="Create" />
-                    <NavButton onClick={() => setView({ type: 'RECENT_CHATS' })} icon={<MessageIcon className="h-5 w-5" />} text="Recent Chats" />
-                    <NavButton onClick={() => setView({ type: 'NOTIFICATIONS' })} icon={<BellIcon className="h-5 w-5" />} text="Notifications" notificationCount={unreadNotifications} />
-                    {auth.currentUser.userType === 'Admin' && (
-                        <NavButton onClick={() => setView({ type: 'ADMIN_SETTINGS' })} icon={<SettingsIcon className="h-5 w-5" />} text="Admin Settings" />
-                    )}
-                  </>
-              )}
+              {renderNavLinks()}
             </nav>
           </div>
           <div className="flex items-center">
              {auth?.currentUser ? (
-                <div className="flex items-center space-x-4">
-                    <span className="text-sm text-gray-400">Welcome, {auth.currentUser.profile.name}</span>
-                    <button onClick={auth.logout} className="flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-800" aria-label="Logout">
-                        <LogoutIcon className="h-5 w-5" />
+                <div className="relative" ref={userMenuRef}>
+                    <button onClick={() => setUserMenuOpen(!isUserMenuOpen)} className="flex items-center space-x-2">
+                        <Avatar imageId={auth.currentUser.profile.avatarUrl} alt={auth.currentUser.profile.name} className="h-8 w-8 rounded-full object-cover"/>
+                        <span className="hidden sm:block text-sm font-medium">{auth.currentUser.profile.name}</span>
                     </button>
+                    {isUserMenuOpen && (
+                        <div className="absolute right-0 mt-2 w-56 origin-top-right bg-[--bg-tertiary] rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none border border-[--border-color]">
+                            <div className="py-1">
+                                <button onClick={() => { navAction({ type: 'PROFILE' }); setUserMenuOpen(false); }} className="flex items-center w-full text-left px-4 py-2 text-sm text-[--text-secondary] hover:bg-[--bg-hover] hover:text-[--text-primary]">
+                                    <UserIcon className="h-5 w-5 mr-3" /> Profile
+                                </button>
+                                <div className="px-4 py-2">
+                                    <ThemeSwitcher />
+                                </div>
+                                <div className="border-t border-[--border-color] my-1"></div>
+                                <button onClick={() => { auth.logout(); setUserMenuOpen(false); }} className="flex items-center w-full text-left px-4 py-2 text-sm text-[--text-secondary] hover:bg-[--bg-hover] hover:text-[--text-primary]">
+                                    <LogoutIcon className="h-5 w-5 mr-3" /> Logout
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
              ) : (
-                <NavButton onClick={() => setView({ type: 'PROFILE' })} icon={<UserIcon className="h-5 w-5" />} text="Login" />
+                <button onClick={() => setView({ type: 'PROFILE' })} className="hidden md:block px-4 py-2 rounded-md text-sm font-medium bg-[--accent-secondary] text-white hover:bg-[--accent-secondary-hover]">
+                    Login
+                </button>
              )}
           </div>
         </div>
       </div>
-       {/* A responsive mobile nav could be added here for smaller screens */}
+      {isMobileMenuOpen && (
+          <div className="md:hidden bg-[--bg-secondary] border-t border-[--border-color]">
+              <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
+                  {renderNavLinks(true)}
+              </div>
+          </div>
+      )}
     </header>
   );
 };
