@@ -1,10 +1,8 @@
-
 import React, { useContext, useState, useRef, useEffect } from 'react';
 import type { AppView, User } from '../types';
 import { AuthContext } from '../context/AuthContext';
 import { HomeIcon, PlusIcon, MessageIcon, UserIcon, LogoutIcon, BellIcon, SettingsIcon, MenuIcon, CloseIcon } from './Icons';
 import Avatar from './Avatar';
-import ThemeSwitcher from './ThemeSwitcher';
 
 interface NavButtonProps {
     onClick: () => void;
@@ -15,11 +13,11 @@ interface NavButtonProps {
 }
 
 const NavButton: React.FC<NavButtonProps> = ({ onClick, icon, text, notificationCount = 0, isActive = false }) => (
-    <button onClick={onClick} className={`relative flex items-center w-full text-left space-x-3 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${isActive ? 'bg-[--bg-hover] text-[--text-primary]' : 'text-[--text-secondary] hover:bg-[--bg-hover] hover:text-[--text-primary]'}`}>
+    <button onClick={onClick} className={`relative flex items-center w-full text-left space-x-3 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${isActive ? 'bg-hover text-text-primary' : 'text-text-secondary hover:bg-hover hover:text-text-primary'}`}>
         {icon}
         <span>{text}</span>
         {notificationCount > 0 && (
-            <span className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-[--accent-primary] text-xs font-bold text-white">
+            <span className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary text-xs font-bold text-white">
                 {notificationCount}
             </span>
         )}
@@ -69,14 +67,14 @@ const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => 
   );
 
   return (
-    <header className="bg-[--bg-secondary] text-[--text-primary] border-b border-[--border-color] sticky top-0 z-30">
+    <header className="bg-secondary text-text-primary border-b border-border sticky top-0 z-30">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-4">
-             <button onClick={() => setMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-[--text-secondary] hover:text-[--text-primary]">
+             <button onClick={() => setMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-text-secondary hover:text-text-primary">
                  {isMobileMenuOpen ? <CloseIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}
              </button>
-            <h1 className="text-xl font-bold cursor-pointer hover:text-[--accent-primary] transition-colors" onClick={() => setView({ type: 'HOME' })}>AI.Crush</h1>
+            <h1 className="text-2xl font-bold cursor-pointer hover:text-accent-primary transition-colors" onClick={() => setView({ type: 'HOME' })}>HereHaven</h1>
             <nav className="hidden md:flex space-x-1">
               {renderNavLinks()}
             </nav>
@@ -89,16 +87,13 @@ const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => 
                         <span className="hidden sm:block text-sm font-medium">{auth.currentUser.profile.name}</span>
                     </button>
                     {isUserMenuOpen && (
-                        <div className="absolute right-0 mt-2 w-56 origin-top-right bg-[--bg-tertiary] rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none border border-[--border-color]">
+                        <div className="absolute right-0 mt-2 w-56 origin-top-right bg-tertiary rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none border border-border">
                             <div className="py-1">
-                                <button onClick={() => { navAction({ type: 'PROFILE' }); setUserMenuOpen(false); }} className="flex items-center w-full text-left px-4 py-2 text-sm text-[--text-secondary] hover:bg-[--bg-hover] hover:text-[--text-primary]">
+                                <button onClick={() => { navAction({ type: 'PROFILE' }); setUserMenuOpen(false); }} className="flex items-center w-full text-left px-4 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary">
                                     <UserIcon className="h-5 w-5 mr-3" /> Profile
                                 </button>
-                                <div className="px-4 py-2">
-                                    <ThemeSwitcher />
-                                </div>
-                                <div className="border-t border-[--border-color] my-1"></div>
-                                <button onClick={() => { auth.logout(); setUserMenuOpen(false); }} className="flex items-center w-full text-left px-4 py-2 text-sm text-[--text-secondary] hover:bg-[--bg-hover] hover:text-[--text-primary]">
+                                <div className="border-t border-border my-1"></div>
+                                <button onClick={() => { auth.logout(); setUserMenuOpen(false); }} className="flex items-center w-full text-left px-4 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary">
                                     <LogoutIcon className="h-5 w-5 mr-3" /> Logout
                                 </button>
                             </div>
@@ -106,7 +101,7 @@ const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => 
                     )}
                 </div>
              ) : (
-                <button onClick={() => setView({ type: 'PROFILE' })} className="hidden md:block px-4 py-2 rounded-md text-sm font-medium bg-[--accent-secondary] text-white hover:bg-[--accent-secondary-hover]">
+                <button onClick={() => setView({ type: 'PROFILE' })} className="hidden md:block px-4 py-2 rounded-md text-sm font-medium bg-accent-secondary text-white hover:bg-accent-secondary-hover">
                     Login
                 </button>
              )}
@@ -114,7 +109,7 @@ const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => 
         </div>
       </div>
       {isMobileMenuOpen && (
-          <div className="md:hidden bg-[--bg-secondary] border-t border-[--border-color]">
+          <div className="md:hidden bg-secondary border-t border-border">
               <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
                   {renderNavLinks(true)}
               </div>

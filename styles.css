@@ -1,85 +1,12 @@
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;500;600&display=swap');
 
 body {
     font-family: 'Inter', sans-serif;
-    background-color: var(--bg-primary);
-    color: var(--text-primary);
-    transition: background-color 0.3s ease, color 0.3s ease;
+    /* Base colors are now applied via Tailwind classes on the body tag in index.html */
 }
 
-:root,
-body.theme-dark {
-  /* Using Tailwind's slate/gray color palette for a softer dark theme */
-  --bg-primary: #111827; /* slate-900 */
-  --bg-secondary: #1f2937; /* slate-800 */
-  --bg-tertiary: #374151; /* slate-700 */
-  --bg-hover: #4b5563; /* slate-600 */
-  --text-primary: #f9fafb; /* gray-50 */
-  --text-secondary: #9ca3af; /* gray-400 */
-  --border-color: #374151; /* slate-700 */
-  --accent-primary: #ec4899;
-  --accent-primary-hover: #db2777;
-  --accent-secondary: #3b82f6;
-  --accent-secondary-hover: #2563eb;
-  --success: #22c55e;
-  --warning: #facc15;
-  --danger: #ef4444;
-  --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-}
-
-body.theme-light {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f3f4f6;
-  --bg-tertiary: #e5e7eb;
-  --bg-hover: #d1d5db;
-  --text-primary: #1f2937;
-  --text-secondary: #6b7280;
-  --border-color: #d1d5db;
-  --accent-primary: #d946ef;
-  --accent-primary-hover: #c026d3;
-  --accent-secondary: #3b82f6;
-  --accent-secondary-hover: #2563eb;
-  --success: #16a34a;
-  --warning: #f59e0b;
-  --danger: #dc2626;
-  --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-}
-
-body.theme-synthwave {
-  --bg-primary: #2d1b55;
-  --bg-secondary: #241645;
-  --bg-tertiary: #3a296b;
-  --bg-hover: #4e388c;
-  --text-primary: #fdfdfd;
-  --text-secondary: #b4a3e4;
-  --border-color: #4e388c;
-  --accent-primary: #ff7ac6;
-  --accent-primary-hover: #f943b4;
-  --accent-secondary: #00e8f2;
-  --accent-secondary-hover: #00c6cf;
-  --success: #50fa7b;
-  --warning: #f1fa8c;
-  --danger: #ff5555;
-  --card-shadow: 0 0 15px rgba(255, 122, 198, 0.3), 0 0 5px rgba(0, 232, 242, 0.2);
-}
-
-body.theme-forest {
-  --bg-primary: #1a2e2d;
-  --bg-secondary: #1f3a39;
-  --bg-tertiary: #274C4A;
-  --bg-hover: #31635F;
-  --text-primary: #e0e6e2;
-  --text-secondary: #a2b1ad;
-  --border-color: #31635F;
-  --accent-primary: #63b365;
-  --accent-primary-hover: #549957;
-  --accent-secondary: #e9c46a;
-  --accent-secondary-hover: #d8b150;
-  --success: #63b365;
-  --warning: #e9c46a;
-  --danger: #e76f51;
-  --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Playfair Display', serif;
 }
 
 /* Custom scrollbar for a better look */
@@ -88,12 +15,12 @@ body.theme-forest {
     height: 8px;
 }
 ::-webkit-scrollbar-track {
-    background: var(--bg-secondary);
+    background: #334155;
 }
 ::-webkit-scrollbar-thumb {
-    background: var(--bg-tertiary);
+    background: #475569;
     border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: var(--bg-hover);
+    background: #64748B;
 }

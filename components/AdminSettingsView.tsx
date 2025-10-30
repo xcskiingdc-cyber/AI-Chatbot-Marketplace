@@ -24,8 +24,8 @@ const AdminSettingsView: React.FC = () => {
 
     return (
         <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto">
-            <h1 className="text-3xl font-bold mb-6 text-[--text-primary]">Admin Settings</h1>
-            <div className="border-b border-[--border-color] mb-6">
+            <h1 className="text-3xl font-bold mb-6 text-text-primary">Admin Settings</h1>
+            <div className="border-b border-border mb-6">
                 <nav className="-mb-px flex space-x-2 sm:space-x-6 overflow-x-auto" aria-label="Tabs">
                     {tabs.map(tab => (
                         <button
@@ -33,8 +33,8 @@ const AdminSettingsView: React.FC = () => {
                             onClick={() => setActiveTab(tab.id)}
                             className={`${
                                 activeTab === tab.id
-                                ? 'border-[--accent-primary] text-[--accent-primary]'
-                                : 'border-transparent text-[--text-secondary] hover:text-[--text-primary] hover:border-[--border-color]'
+                                ? 'border-accent-primary text-accent-primary'
+                                : 'border-transparent text-text-secondary hover:text-text-primary hover:border-border'
                             } whitespace-nowrap py-4 px-1 sm:px-2 border-b-2 font-medium text-sm`}
                         >
                             {tab.label}
@@ -43,7 +43,7 @@ const AdminSettingsView: React.FC = () => {
                 </nav>
             </div>
 
-            <div className="bg-[--bg-secondary] p-4 sm:p-6 rounded-lg border border-[--border-color]">
+            <div className="bg-secondary p-4 sm:p-6 rounded-lg border border-border">
                 {activeTab === 'stats' && <SiteStatsTab />}
                 {activeTab === 'prompts' && <GlobalPromptsTab />}
                 {activeTab === 'context' && <AIContextManagementTab />}
@@ -55,9 +55,9 @@ const AdminSettingsView: React.FC = () => {
 };
 
 const StatCard: React.FC<{ title: string; value?: number | string, children?: React.ReactNode }> = ({ title, value, children }) => (
-    <div className="bg-[--bg-primary] p-6 rounded-lg border border-[--border-color]">
-        <h3 className="text-lg font-medium text-[--text-secondary]">{title}</h3>
-        {value && <p className="text-3xl font-bold mt-2 text-[--text-primary]">{value}</p>}
+    <div className="bg-primary p-6 rounded-lg border border-border">
+        <h3 className="text-lg font-medium text-text-secondary">{title}</h3>
+        {value && <p className="text-3xl font-bold mt-2 text-text-primary">{value}</p>}
         {children}
     </div>
 );
@@ -79,15 +79,15 @@ const SiteStatsTab: React.FC = () => {
             <StatCard title="Total Users" value={allUsers.length} />
             <StatCard title="Total Characters" value={characters.length} />
             <StatCard title="Characters by Type">
-                <p className="text-3xl font-bold mt-2 text-[--text-primary]"><span className="text-[--success]">{publicChars}</span> Public / <span className="text-[--text-secondary]">{privateChars}</span> Private</p>
+                <p className="text-3xl font-bold mt-2 text-text-primary"><span className="text-success">{publicChars}</span> Public / <span className="text-text-secondary">{privateChars}</span> Private</p>
             </StatCard>
              <div className="md:col-span-2 lg:col-span-3">
                 <StatCard title="Users by Tier">
                     <div className="flex flex-wrap justify-around mt-2 gap-4">
                         {['Admin', 'Subscription', 'Ads', 'Free'].map(type => (
                             <div key={type} className="text-center">
-                                <p className="text-3xl font-bold text-[--text-primary]">{(userStats[type as UserType] || 0)}</p>
-                                <p className="text-sm text-[--text-secondary]">{type}</p>
+                                <p className="text-3xl font-bold text-text-primary">{(userStats[type as UserType] || 0)}</p>
+                                <p className="text-sm text-text-secondary">{type}</p>
                             </div>
                         ))}
                     </div>
@@ -112,8 +112,8 @@ const GlobalPromptsTab: React.FC = () => {
         alert('Global prompts updated!');
     };
     
-    const labelClasses = "block text-sm font-medium text-[--accent-primary] mb-2";
-    const textAreaClasses = "w-full p-2 bg-[--bg-primary] border border-[--border-color] rounded-md focus:outline-none focus:ring-2 focus:ring-[--accent-primary] h-64 font-mono text-sm";
+    const labelClasses = "block text-sm font-medium text-accent-primary mb-2";
+    const textAreaClasses = "w-full p-2 bg-primary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-primary h-64 font-mono text-sm";
 
     return (
         <div className="space-y-6">
@@ -138,7 +138,7 @@ const GlobalPromptsTab: React.FC = () => {
                 />
             </div>
             <div className="flex justify-end">
-                <button onClick={handleSave} className="px-6 py-2 bg-[--accent-secondary] text-white hover:bg-[--accent-secondary-hover] rounded-md transition-colors">
+                <button onClick={handleSave} className="px-6 py-2 bg-accent-secondary text-white hover:bg-accent-secondary-hover rounded-md transition-colors">
                     Save Prompts
                 </button>
             </div>
@@ -187,21 +187,21 @@ const AIContextManagementTab: React.FC = () => {
         alert('AI Context settings updated!');
     };
 
-    const labelClasses = "block text-sm font-medium text-[--accent-primary] mb-2";
+    const labelClasses = "block text-sm font-medium text-accent-primary mb-2";
 
     return (
         <div className="space-y-6">
             <div>
                 <label className={labelClasses}>Character Fields for Context</label>
-                <p className="text-sm text-[--text-secondary] mb-3">Select which fields from a character's profile are included in the AI's system instruction.</p>
+                <p className="text-sm text-text-secondary mb-3">Select which fields from a character's profile are included in the AI's system instruction.</p>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                     {allFields.map(field => (
-                        <label key={field.id} className="flex items-center space-x-2 text-[--text-primary] p-2 bg-[--bg-primary] border border-[--border-color] rounded-md">
+                        <label key={field.id} className="flex items-center space-x-2 text-text-primary p-2 bg-primary border border-border rounded-md">
                             <input
                                 type="checkbox"
                                 checked={settings.includedFields.includes(field.id)}
                                 onChange={() => handleFieldToggle(field.id)}
-                                className="form-checkbox h-5 w-5 text-[--accent-primary] bg-[--bg-tertiary] border-[--border-color] rounded focus:ring-[--accent-primary]"
+                                className="form-checkbox h-5 w-5 text-accent-primary bg-tertiary border-border rounded focus:ring-accent-primary"
                             />
                             <span>{field.label}</span>
                         </label>
@@ -210,7 +210,7 @@ const AIContextManagementTab: React.FC = () => {
             </div>
             <div>
                 <label htmlFor="historyLength" className={labelClasses}>Chat History Context Length</label>
-                <p className="text-sm text-[--text-secondary] mb-3">How many previous messages (user and bot combined) to include for context. Recommended: 20-40. Max: 100.</p>
+                <p className="text-sm text-text-secondary mb-3">How many previous messages (user and bot combined) to include for context. Recommended: 20-40. Max: 100.</p>
                 <input
                     type="number"
                     id="historyLength"
@@ -218,11 +218,11 @@ const AIContextManagementTab: React.FC = () => {
                     onChange={handleHistoryChange}
                     min="0"
                     max="100"
-                    className="w-full max-w-xs p-2 bg-[--bg-primary] border border-[--border-color] rounded-md focus:outline-none focus:ring-2 focus:ring-[--accent-primary]"
+                    className="w-full max-w-xs p-2 bg-primary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-primary"
                 />
             </div>
              <div className="flex justify-end">
-                <button onClick={handleSave} className="px-6 py-2 bg-[--accent-secondary] text-white hover:bg-[--accent-secondary-hover] rounded-md transition-colors">
+                <button onClick={handleSave} className="px-6 py-2 bg-accent-secondary text-white hover:bg-accent-secondary-hover rounded-md transition-colors">
                     Save AI Settings
                 </button>
             </div>
@@ -266,27 +266,27 @@ const UserManagementTab: React.FC = () => {
                 placeholder="Search users by username, name, or email..."
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                className="w-full bg-[--bg-primary] border border-[--border-color] rounded-md py-2 px-4"
+                className="w-full bg-primary border border-border rounded-md py-2 px-4"
             />
             <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-[--border-color]">
-                    <thead className="bg-[--bg-tertiary]">
+                <table className="min-w-full divide-y divide-border">
+                    <thead className="bg-tertiary">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-[--text-secondary] uppercase tracking-wider">User</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-[--text-secondary] uppercase tracking-wider">Type</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-[--text-secondary] uppercase tracking-wider">Status</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-[--text-secondary] uppercase tracking-wider">Actions</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">User</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Type</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Status</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Actions</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-[--border-color]">
+                    <tbody className="divide-y divide-border">
                         {filteredUsers.map(user => (
                             <tr key={user.id}>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="flex items-center">
                                         <Avatar imageId={user.profile.avatarUrl} alt={user.profile.name} className="h-10 w-10 rounded-full object-cover"/>
                                         <div className="ml-4">
-                                            <div className="text-sm font-medium text-[--text-primary]">{user.profile.name}</div>
-                                            <div className="text-sm text-[--text-secondary]">@{user.username}</div>
+                                            <div className="text-sm font-medium text-text-primary">{user.profile.name}</div>
+                                            <div className="text-sm text-text-secondary">@{user.username}</div>
                                         </div>
                                     </div>
                                 </td>
@@ -294,7 +294,7 @@ const UserManagementTab: React.FC = () => {
                                     <select 
                                         value={user.userType}
                                         onChange={(e) => auth?.updateUserType(user.id, e.target.value as UserType)}
-                                        className="bg-[--bg-tertiary] border-[--border-color] rounded-md p-1 text-sm focus:ring-[--accent-primary] focus:border-[--accent-primary]"
+                                        className="bg-tertiary border-border rounded-md p-1 text-sm focus:ring-accent-primary focus:border-accent-primary"
                                         disabled={user.userType === 'Admin'}
                                     >
                                         <option>Free</option>
@@ -360,19 +360,19 @@ const ContentModerationTab: React.FC = () => {
                 placeholder="Search characters by name or description..."
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                className="w-full bg-[--bg-primary] border border-[--border-color] rounded-md py-2 px-4"
+                className="w-full bg-primary border border-border rounded-md py-2 px-4"
             />
             <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-[--border-color]">
-                    <thead className="bg-[--bg-tertiary]">
+                <table className="min-w-full divide-y divide-border">
+                    <thead className="bg-tertiary">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-[--text-secondary] uppercase tracking-wider">Character</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-[--text-secondary] uppercase tracking-wider">Creator</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-[--text-secondary] uppercase tracking-wider">Status</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-[--text-secondary] uppercase tracking-wider">Actions</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Character</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Creator</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Status</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Actions</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-[--border-color]">
+                    <tbody className="divide-y divide-border">
                         {filteredCharacters.map(char => {
                             const creator = auth?.findUserById(char.creatorId);
                             return (
@@ -381,11 +381,11 @@ const ContentModerationTab: React.FC = () => {
                                         <div className="flex items-center">
                                             <Avatar imageId={char.avatarUrl} alt={char.name} className="h-10 w-10 rounded-md object-cover"/>
                                             <div className="ml-4">
-                                                <div className="text-sm font-medium text-[--text-primary]">{char.name}</div>
+                                                <div className="text-sm font-medium text-text-primary">{char.name}</div>
                                             </div>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-[--text-secondary]">{creator?.profile.name || 'Unknown'}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">{creator?.profile.name || 'Unknown'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         {char.isSilencedByAdmin 
                                             ? <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-900/50 text-yellow-300">Silenced</span>

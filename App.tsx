@@ -214,16 +214,16 @@ const MainApp: React.FC = () => {
                             placeholder="Search..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full bg-[--bg-secondary] border border-[--border-color] rounded-md py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-[--accent-primary]"
+                            className="w-full bg-secondary border border-border rounded-md py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-accent-primary"
                         />
                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <svg className="h-5 w-5 text-[--text-secondary]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
+                            <svg className="h-5 w-5 text-text-secondary" xmlns="http://www.w.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
                         </div>
                     </div>
                      <select
                         value={searchBy}
                         onChange={(e) => setSearchBy(e.target.value as 'character' | 'creator')}
-                        className="bg-[--bg-secondary] border border-[--border-color] rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[--accent-primary]"
+                        className="bg-secondary border border-border rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-accent-primary"
                       >
                         <option value="character">By Character</option>
                         <option value="creator">By Creator</option>
@@ -233,7 +233,7 @@ const MainApp: React.FC = () => {
                   <select
                     value={sortOrder}
                     onChange={(e) => setSortOrder(e.target.value)}
-                    className="bg-[--bg-secondary] border border-[--border-color] rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[--accent-primary]"
+                    className="bg-secondary border border-border rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-accent-primary"
                   >
                     <option value="newest">Newest</option>
                     <option value="popular">Most Popular</option>
@@ -242,20 +242,20 @@ const MainApp: React.FC = () => {
                     <label htmlFor="following-toggle" className="flex items-center cursor-pointer">
                         <div className="relative">
                             <input type="checkbox" id="following-toggle" checked={filterByFollowing} onChange={e => setFilterByFollowing(e.target.checked)} className="sr-only" />
-                            <div className={`block w-14 h-8 rounded-full ${filterByFollowing ? 'bg-[--accent-secondary]' : 'bg-[--bg-tertiary]'}`}></div>
+                            <div className={`block w-14 h-8 rounded-full ${filterByFollowing ? 'bg-accent-secondary' : 'bg-tertiary'}`}></div>
                             <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${filterByFollowing ? 'transform translate-x-6' : ''}`}></div>
                         </div>
-                        <div className="ml-3 text-[--text-primary] font-medium hidden sm:block">Following</div>
+                        <div className="ml-3 text-text-primary font-medium hidden sm:block">Following</div>
                     </label>
                   )}
                   {currentUser && isUserAdult && (
                     <label htmlFor="nsfw-toggle" className="flex items-center cursor-pointer">
                         <div className="relative">
                             <input type="checkbox" id="nsfw-toggle" checked={showNSFW} onChange={handleNsfwToggle} className="sr-only" />
-                            <div className={`block w-14 h-8 rounded-full ${showNSFW ? 'bg-[--accent-primary]' : 'bg-[--bg-tertiary]'}`}></div>
+                            <div className={`block w-14 h-8 rounded-full ${showNSFW ? 'bg-accent-primary' : 'bg-tertiary'}`}></div>
                             <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${showNSFW ? 'transform translate-x-6' : ''}`}></div>
                         </div>
-                         <div className="ml-3 text-[--text-primary] font-medium hidden sm:block">NSFW</div>
+                         <div className="ml-3 text-text-primary font-medium hidden sm:block">NSFW</div>
                     </label>
                   )}
                 </div>
@@ -277,7 +277,7 @@ const MainApp: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen font-sans bg-[--bg-primary] text-[--text-primary]">
+    <div className="flex flex-col h-screen font-sans bg-primary text-text-primary">
       <Navbar setView={navigate} />
       <main className="flex-1 flex flex-col overflow-y-auto">
         {renderContent()}

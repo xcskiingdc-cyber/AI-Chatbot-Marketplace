@@ -29,7 +29,7 @@ const CharacterGrid: React.FC<CharacterGridProps> = ({
 }) => {
   if (characters.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center text-[--text-secondary] py-16">
+      <div className="flex flex-col items-center justify-center text-text-secondary py-16">
         <p className="text-2xl">No characters found!</p>
         <p>Try creating a character or adjusting your filters.</p>
       </div>
@@ -45,8 +45,7 @@ const CharacterGrid: React.FC<CharacterGridProps> = ({
             return (
               <div 
                 key={character.id} 
-                className="relative group bg-[--bg-secondary] rounded-lg overflow-hidden shadow-lg transform hover:-translate-y-1 transition-all duration-300"
-                style={{boxShadow: 'var(--card-shadow)'}}
+                className="relative group bg-secondary rounded-lg overflow-hidden shadow-lg transform hover:-translate-y-1 transition-all duration-300"
               >
                 <div onClick={() => onCharacterClick(character)} className="cursor-pointer">
                     <Avatar 
@@ -63,11 +62,11 @@ const CharacterGrid: React.FC<CharacterGridProps> = ({
                 <div className="absolute top-2 left-2 flex flex-col items-start gap-2">
                     {showControls && (
                         <div className="flex flex-col gap-1 items-start">
-                            <span className={`px-2 py-1 text-xs font-bold text-white rounded-md ${character.isPublic ? 'bg-[--success]/80' : 'bg-gray-600/80'}`}>
+                            <span className={`px-2 py-1 text-xs font-bold text-white rounded-md ${character.isPublic ? 'bg-success/80' : 'bg-gray-600/80'}`}>
                                 {character.isPublic ? 'Public' : 'Private'}
                             </span>
                             {character.isSilencedByAdmin && (
-                                <span className="px-2 py-1 text-xs font-bold text-yellow-200 bg-[--warning]/50 rounded-md">
+                                <span className="px-2 py-1 text-xs font-bold text-yellow-200 bg-warning/50 rounded-md">
                                     Silenced
                                 </span>
                             )}
@@ -79,7 +78,7 @@ const CharacterGrid: React.FC<CharacterGridProps> = ({
                             className="p-2 bg-black/60 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
                             aria-label="Favorite Character"
                         >
-                            <HeartIcon className={`h-5 w-5 ${isFavorite ? 'text-[--accent-primary] fill-current' : 'text-white'}`} />
+                            <HeartIcon className={`h-5 w-5 ${isFavorite ? 'text-accent-primary fill-current' : 'text-white'}`} />
                         </button>
                     )}
                 </div>
@@ -110,11 +109,11 @@ const CharacterGrid: React.FC<CharacterGridProps> = ({
                   <h3 className="text-base font-bold text-white truncate cursor-pointer" onClick={() => onCharacterClick(character)}>{character.name}</h3>
                   <div className="flex justify-between items-center mt-1">
                       {creator && onCreatorClick ? (
-                          <button onClick={(e) => { e.stopPropagation(); onCreatorClick(creator); }} className="text-xs text-[--text-secondary] hover:text-white hover:underline truncate pr-2">
+                          <button onClick={(e) => { e.stopPropagation(); onCreatorClick(creator); }} className="text-xs text-text-secondary hover:text-white hover:underline truncate pr-2">
                               by {creator.profile.name}
                           </button>
                       ) : (
-                          <span className="text-xs text-[--text-secondary] pr-2">by Unknown</span>
+                          <span className="text-xs text-text-secondary pr-2">by Unknown</span>
                       )}
                       <div className="flex items-center gap-1 text-xs text-gray-300 flex-shrink-0">
                           <ThumbsUpIcon className="w-4 h-4" />

@@ -1,4 +1,3 @@
-
 export enum LLMModel {
   GEMINI_FLASH = 'gemini-2.5-flash',
   GEMINI_PRO = 'gemini-2.5-pro',
@@ -14,12 +13,11 @@ export const TTSVoices = {
 
 export type TTSVoiceName = keyof typeof TTSVoices;
 
-export type Theme = 'light' | 'dark' | 'synthwave' | 'forest';
-
 export interface ChatSettings {
   model: LLMModel;
   isStreaming: boolean;
   ttsVoice: TTSVoiceName;
+  autoRead: boolean;
 }
 
 export interface Comment {

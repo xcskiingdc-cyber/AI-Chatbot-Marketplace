@@ -241,7 +241,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUsers(prevUsers => {
                 const newUsers = {...prevUsers};
                 creator.profile.followers.forEach(followerId => {
-                    const followerUsername = Object.values(newUsers).find(u => u.user.id === followerId)?.user.username;
+                    // FIX: Add type assertion to Object.values to fix 'user' property access on unknown type.
+                    const followerUsername = (Object.values(newUsers) as { pass: string, user: User }[]).find(u => u.user.id === followerId)?.user.username;
                     if (followerUsername && newUsers[followerUsername]) {
                         const userToNotify = newUsers[followerUsername].user;
                         userToNotify.profile.notifications = [notification, ...(userToNotify.profile.notifications || [])];
@@ -313,7 +314,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 };
                 
                 setUsers(prevUsers => {
-                    const creatorUser = Object.values(prevUsers).find(u => u.user.id === c.creatorId);
+                    // FIX: Add type assertion to Object.values to fix 'user' property access on unknown type.
+                    const creatorUser = (Object.values(prevUsers) as { pass: string, user: User }[]).find(u => u.user.id === c.creatorId);
                     if (creatorUser) {
                         const newUsers = {...prevUsers};
                         const userToNotify = newUsers[creatorUser.user.username].user;
@@ -365,7 +367,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             isRead: false,
         };
         setUsers(prevUsers => {
-            const parentAuthor = Object.values(prevUsers).find(u => u.user.id === parentComment.userId);
+            // FIX: Add type assertion to Object.values to fix 'user' property access on unknown type.
+            const parentAuthor = (Object.values(prevUsers) as { pass: string, user: User }[]).find(u => u.user.id === parentComment.userId);
             if (parentAuthor) {
                 const newUsers = {...prevUsers};
                 const userToNotify = newUsers[parentAuthor.user.username].user;
@@ -384,7 +387,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             isRead: false,
         };
         setUsers(prevUsers => {
-            const creatorUser = Object.values(prevUsers).find(u => u.user.id === character.creatorId);
+            // FIX: Add type assertion to Object.values to fix 'user' property access on unknown type.
+            const creatorUser = (Object.values(prevUsers) as { pass: string, user: User }[]).find(u => u.user.id === character.creatorId);
             if (creatorUser) {
                 const newUsers = {...prevUsers};
                 const userToNotify = newUsers[creatorUser.user.username].user;

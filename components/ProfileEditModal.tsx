@@ -74,16 +74,16 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
     onSave(finalProfileData);
   };
   
-  const formFieldClasses = "w-full p-2 bg-[--bg-secondary] border border-[--border-color] rounded-md focus:outline-none focus:ring-2 focus:ring-[--accent-primary] text-[--text-primary]";
-  const labelClasses = "block text-sm font-medium text-[--text-secondary] mb-2";
+  const formFieldClasses = "w-full p-2 bg-secondary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-primary text-text-primary";
+  const labelClasses = "block text-sm font-medium text-text-secondary mb-2";
   const defaultAvatar = `https://i.pravatar.cc/150?u=${profile.name}`;
 
   return (
     <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-      <div className="bg-[--bg-primary] rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative border border-[--border-color]">
-        <div className="sticky top-0 bg-[--bg-primary] z-10 px-6 py-4 border-b border-[--border-color] flex justify-between items-center">
-            <h2 className="text-2xl font-bold text-[--text-primary]">Edit Profile</h2>
-            <button onClick={onCancel} className="text-[--text-secondary] hover:text-[--text-primary]">
+      <div className="bg-primary rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative border border-border">
+        <div className="sticky top-0 bg-primary z-10 px-6 py-4 border-b border-border flex justify-between items-center">
+            <h2 className="text-2xl font-bold text-text-primary">Edit Profile</h2>
+            <button onClick={onCancel} className="text-text-secondary hover:text-text-primary">
                 <CloseIcon className="w-6 h-6" />
             </button>
         </div>
@@ -91,9 +91,9 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
             <div>
                 <label className={labelClasses}>Avatar</label>
                 <div className="flex items-center space-x-4">
-                    <img src={previewUrl || defaultAvatar} alt="avatar" className="w-24 h-24 rounded-full object-cover ring-2 ring-[--border-color]"/>
+                    <img src={previewUrl || defaultAvatar} alt="avatar" className="w-24 h-24 rounded-full object-cover ring-2 ring-border"/>
                     <div className="flex flex-col gap-2">
-                        <label htmlFor="profile-avatar-upload" className="cursor-pointer bg-[--bg-tertiary] hover:bg-[--bg-hover] text-[--text-primary] font-bold py-2 px-4 rounded-md inline-flex items-center gap-2">
+                        <label htmlFor="profile-avatar-upload" className="cursor-pointer bg-tertiary hover:bg-hover text-text-primary font-bold py-2 px-4 rounded-md inline-flex items-center gap-2">
                             <UploadIcon className="w-5 h-5" />
                             <span>Change</span>
                         </label>
@@ -108,23 +108,23 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
             <div>
                 <label htmlFor="name" className={labelClasses}>User Name *</label>
                 <input type="text" id="name" name="name" value={profile.name} onChange={handleChange} className={formFieldClasses} required />
-                <p className="text-xs text-[--text-secondary] mt-1">This represents you as the character's creator.</p>
+                <p className="text-xs text-text-secondary mt-1">This represents you as the character's creator.</p>
             </div>
             
             <div>
                 <label className={labelClasses}>Gender</label>
-                <div className="flex items-center space-x-6 text-[--text-primary]">
-                    <label className="flex items-center"><input type="radio" name="gender" value="male" checked={profile.gender === 'male'} onChange={handleGenderChange} className="form-radio text-[--accent-primary] bg-[--bg-secondary]" /> <span className="ml-2">Male</span></label>
-                    <label className="flex items-center"><input type="radio" name="gender" value="female" checked={profile.gender === 'female'} onChange={handleGenderChange} className="form-radio text-[--accent-primary] bg-[--bg-secondary]"/> <span className="ml-2">Female</span></label>
-                    <label className="flex items-center"><input type="radio" name="gender" value="non-binary" checked={profile.gender === 'non-binary'} onChange={handleGenderChange} className="form-radio text-[--accent-primary] bg-[--bg-secondary]"/> <span className="ml-2">Non-binary</span></label>
+                <div className="flex items-center space-x-6 text-text-primary">
+                    <label className="flex items-center"><input type="radio" name="gender" value="male" checked={profile.gender === 'male'} onChange={handleGenderChange} className="form-radio text-accent-primary bg-secondary" /> <span className="ml-2">Male</span></label>
+                    <label className="flex items-center"><input type="radio" name="gender" value="female" checked={profile.gender === 'female'} onChange={handleGenderChange} className="form-radio text-accent-primary bg-secondary"/> <span className="ml-2">Female</span></label>
+                    <label className="flex items-center"><input type="radio" name="gender" value="non-binary" checked={profile.gender === 'non-binary'} onChange={handleGenderChange} className="form-radio text-accent-primary bg-secondary"/> <span className="ml-2">Non-binary</span></label>
                 </div>
-                 <p className="text-xs text-[--text-secondary] mt-1">Only you can see this.</p>
+                 <p className="text-xs text-text-secondary mt-1">Only you can see this.</p>
             </div>
 
             <div>
                 <label htmlFor="birthday" className={labelClasses}>Birthday</label>
                 <input type="date" id="birthday" name="birthday" value={profile.birthday} onChange={handleChange} className={formFieldClasses} />
-                <p className="text-xs text-[--text-secondary] mt-1">Only you can see this, will help with recommendations.</p>
+                <p className="text-xs text-text-secondary mt-1">Only you can see this, will help with recommendations.</p>
             </div>
 
              <div>
@@ -133,7 +133,7 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
             </div>
 
             <div className="pt-4 flex justify-end">
-                 <button type="submit" className="px-8 py-3 bg-[--accent-primary] hover:bg-[--accent-primary-hover] text-white rounded-md transition-colors font-semibold">Save</button>
+                 <button type="submit" className="px-8 py-3 bg-accent-primary hover:bg-accent-primary-hover text-white rounded-md transition-colors font-semibold">Save</button>
             </div>
         </form>
       </div>

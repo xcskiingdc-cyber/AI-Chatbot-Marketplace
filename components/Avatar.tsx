@@ -13,7 +13,7 @@ const Avatar: React.FC<AvatarProps> = ({ imageId, alt, ...props }) => {
     if (!imageUrl) {
         return (
             <div 
-                className={`${props.className || ''} bg-[--bg-tertiary] animate-pulse`}
+                className={`${props.className || ''} bg-tertiary animate-pulse`}
                 style={{
                     width: props.width,
                     height: props.height,

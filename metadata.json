@@ -1,6 +1,6 @@
 {
-  "name": "AI Chatbot Marketplace",
-  "description": "Create and chat with personalized AI characters. Define their personality, backstory, and more. Engage in dynamic, context-aware conversations with deep memory, powered by Gemini. Supports SFW/NSFW modes, message editing, and Text-to-Speech.",
+  "name": "HereHaven",
+  "description": "HereHaven: A storytelling sanctuary for readers, writers, and artists. Create and interact with AI characters in an immersive, creative space.",
   "requestFramePermissions": [
     "microphone"
   ]
