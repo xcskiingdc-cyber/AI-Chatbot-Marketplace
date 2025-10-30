@@ -32,13 +32,13 @@ const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, o
 
   const isBot = message.sender === 'bot';
   const avatarId = isBot ? character.avatarUrl : (user?.profile.avatarUrl || 'https://i.pravatar.cc/150?u=user');
+  const name = isBot ? character.name : 'You';
 
-  return (
-    <div className={`flex items-start gap-4 p-4 ${isBot ? '' : 'bg-gray-900/50'}`}>
-      <Avatar imageId={avatarId} alt={isBot ? character.name : 'User'} className="w-10 h-10 rounded-full object-cover" />
-      <div className="flex-1 group">
+  const MessageBubble = (
+    <div className="group max-w-md lg:max-w-lg">
+      <div className={`px-4 py-3 rounded-xl ${isBot ? 'bg-gray-800' : 'bg-blue-600 text-white'}`}>
         <div className="flex items-center justify-between">
-            <p className="font-bold text-gray-100">{isBot ? character.name : 'You'}</p>
+            <p className={`font-bold ${isBot ? 'text-gray-100' : 'text-white'}`}>{name}</p>
             {!isEditing && (
                 <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     {isBot && <button onClick={() => onPlayTTS(message.text)} className="p-1 text-gray-400 hover:text-white"><SoundOnIcon className="w-4 h-4" /></button>}
@@ -61,9 +61,17 @@ const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, o
             </div>
           </div>
         ) : (
-          <p className="text-gray-300 whitespace-pre-wrap mt-1">{message.text}</p>
+          <p className={`whitespace-pre-wrap mt-1 ${isBot ? 'text-gray-300' : 'text-white'}`}>{message.text}</p>
         )}
       </div>
+    </div>
+  );
+
+  return (
+    <div className={`flex items-start gap-4 ${isBot ? 'justify-start' : 'justify-end'}`}>
+        {isBot && <Avatar imageId={avatarId} alt={name} className="w-10 h-10 rounded-full object-cover" />}
+        {MessageBubble}
+        {!isBot && <Avatar imageId={avatarId} alt={name} className="w-10 h-10 rounded-full object-cover" />}
     </div>
   );
 };
