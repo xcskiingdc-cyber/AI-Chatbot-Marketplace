@@ -2,7 +2,7 @@
 import React, { useContext, useState, useMemo } from 'react';
 import type { Character, AppView, User } from '../types';
 import CharacterGrid from './CharacterGrid';
-import { EditIcon } from './Icons';
+import { EditIcon, TicketIcon } from './Icons';
 import Avatar from './Avatar';
 import { AuthContext } from '../context/AuthContext';
 import ConfirmationModal from './ConfirmationModal';
@@ -15,9 +15,10 @@ interface ProfileViewProps {
   onEditProfile: () => void;
   toggleFavorite: (characterId: string) => void;
   onCharacterClick: (character: Character) => void;
+  isLoading: boolean;
 }
 
-const ProfileView: React.FC<ProfileViewProps> = ({ user, myCharacters, favoriteCharacters, setView, onEditProfile, toggleFavorite, onCharacterClick }) => {
+const ProfileView: React.FC<ProfileViewProps> = ({ user, myCharacters, favoriteCharacters, setView, onEditProfile, toggleFavorite, onCharacterClick, isLoading }) => {
   const auth = useContext(AuthContext);
   const [charToDelete, setCharToDelete] = useState<string | null>(null);
 
@@ -71,13 +72,24 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, myCharacters, favoriteC
                     <p className="text-text-secondary mt-2">{user.profile.bio || "No bio set."}</p>
                     {user.isSilenced && <p className="mt-2 px-3 py-1 text-sm bg-yellow-900/50 text-yellow-300 rounded-full inline-block">This user is silenced.</p>}
                 </div>
-                <button 
-                    onClick={onEditProfile}
-                    className="absolute top-0 right-0 px-3 py-2 bg-tertiary hover:bg-hover rounded-md text-sm flex items-center gap-2"
-                >
-                    <EditIcon className="w-4 h-4" />
-                    <span className="hidden sm:inline">Edit Profile</span>
-                </button>
+                <div className="absolute top-0 right-0 flex gap-2">
+                    <button 
+                        onClick={() => setView({type: 'SUPPORT_TICKET'})}
+                        className="px-3 py-2 bg-tertiary hover:bg-hover rounded-md text-sm flex items-center gap-2"
+                        title="Submit a Ticket"
+                    >
+                        <TicketIcon className="w-4 h-4" />
+                        <span className="hidden sm:inline">Support</span>
+                    </button>
+                    <button 
+                        onClick={onEditProfile}
+                        className="px-3 py-2 bg-tertiary hover:bg-hover rounded-md text-sm flex items-center gap-2"
+                        title="Edit Profile"
+                    >
+                        <EditIcon className="w-4 h-4" />
+                        <span className="hidden sm:inline">Edit Profile</span>
+                    </button>
+                </div>
             </div>
         </div>
         
@@ -105,7 +117,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, myCharacters, favoriteC
                   </div>
               </div>
               {/* FIX: Change onCreatorClick to accept an argument to match the prop type. */}
-              <CharacterGrid characters={filteredMyCharacters} setView={setView} onCharacterClick={onCharacterClick} showControls={true} currentUser={auth?.currentUser} toggleFavorite={toggleFavorite} onDelete={handleDeleteRequest} findUserById={auth?.findUserById} onCreatorClick={(_creator) => {}}/>
+              <CharacterGrid characters={filteredMyCharacters} setView={setView} onCharacterClick={onCharacterClick} isLoading={isLoading} showControls={true} currentUser={auth?.currentUser} toggleFavorite={toggleFavorite} onDelete={handleDeleteRequest} findUserById={auth?.findUserById} onCreatorClick={(_creator) => {}}/>
             </div>
         </div>
 
@@ -122,7 +134,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, myCharacters, favoriteC
                       />
                 </div>
                 {/* FIX: Change onCreatorClick to accept an argument to match the prop type. */}
-                <CharacterGrid characters={filteredFavoriteCharacters} setView={setView} onCharacterClick={onCharacterClick} showControls={false} currentUser={auth?.currentUser} toggleFavorite={toggleFavorite} findUserById={auth?.findUserById} onCreatorClick={(_creator) => {}}/>
+                <CharacterGrid characters={filteredFavoriteCharacters} setView={setView} onCharacterClick={onCharacterClick} isLoading={isLoading} showControls={false} currentUser={auth?.currentUser} toggleFavorite={toggleFavorite} findUserById={auth?.findUserById} onCreatorClick={(_creator) => {}}/>
             </div>
         </div>
 

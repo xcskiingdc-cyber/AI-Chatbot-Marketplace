@@ -1,7 +1,8 @@
-import React, { useContext, useState, useRef, useEffect } from 'react';
-import type { AppView, User } from '../types';
+
+import React, { useContext, useState, useRef, useEffect, useMemo } from 'react';
+import type { AppView, User, Notification } from '../types';
 import { AuthContext } from '../context/AuthContext';
-import { HomeIcon, PlusIcon, MessageIcon, UserIcon, LogoutIcon, BellIcon, SettingsIcon, MenuIcon, CloseIcon } from './Icons';
+import { HomeIcon, PlusIcon, MessageIcon, UserIcon, LogoutIcon, BellIcon, SettingsIcon, MenuIcon, CloseIcon, ShieldCheckIcon, TicketIcon } from './Icons';
 import Avatar from './Avatar';
 
 interface NavButtonProps {
@@ -30,7 +31,27 @@ const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => 
   const [isUserMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   
-  const unreadNotifications = auth?.currentUser?.profile.notifications.filter(n => !n.isRead).length || 0;
+  const { userNotifications, moderatorNotifications } = useMemo(() => {
+    if (!auth?.currentUser?.profile.notifications) return { userNotifications: 0, moderatorNotifications: 0 };
+    
+    const modNotifTypes: Notification['type'][] = ['NEW_REPORT', 'NEW_AI_ALERT', 'NEW_TICKET', 'NEW_DM'];
+    
+    let userCount = 0;
+    let modCount = 0;
+    
+    auth.currentUser.profile.notifications.forEach(n => {
+      if (!n.isRead) {
+        if (modNotifTypes.includes(n.type)) {
+          modCount++;
+        } else {
+          userCount++;
+        }
+      }
+    });
+
+    return { userNotifications: userCount, moderatorNotifications: modCount };
+  }, [auth?.currentUser?.profile.notifications]);
+
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -54,9 +75,12 @@ const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => 
         <>
           <NavButton onClick={() => navAction({ type: 'RECENT_CHATS' })} icon={<MessageIcon className="h-5 w-5" />} text="Recent Chats" />
           <NavButton onClick={() => navAction({ type: 'CREATE_CHARACTER' })} icon={<PlusIcon className="h-5 w-5" />} text="Create" />
-          <NavButton onClick={() => navAction({ type: 'NOTIFICATIONS' })} icon={<BellIcon className="h-5 w-5" />} text="Notifications" notificationCount={unreadNotifications} />
-          {auth.currentUser.userType === 'Admin' && (
-            <NavButton onClick={() => navAction({ type: 'ADMIN_SETTINGS' })} icon={<SettingsIcon className="h-5 w-5" />} text="Admin Settings" />
+          <NavButton onClick={() => navAction({ type: 'NOTIFICATIONS' })} icon={<BellIcon className="h-5 w-5" />} text="Notifications" notificationCount={userNotifications} />
+          {['Admin', 'Assistant Admin', 'Moderator'].includes(auth.currentUser.role) && (
+             <NavButton onClick={() => navAction({ type: 'MODERATOR_CONSOLE' })} icon={<TicketIcon className="h-5 w-5" />} text="Mod Console" notificationCount={moderatorNotifications} />
+          )}
+          {['Admin', 'Assistant Admin'].includes(auth.currentUser.role) && (
+            <NavButton onClick={() => navAction({ type: 'ADMIN_CONSOLE' })} icon={<ShieldCheckIcon className="h-5 w-5" />} text="Admin Console" />
           )}
         </>
       )}
@@ -74,7 +98,9 @@ const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => 
              <button onClick={() => setMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-text-secondary hover:text-text-primary">
                  {isMobileMenuOpen ? <CloseIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}
              </button>
-            <h1 className="text-2xl font-bold cursor-pointer hover:text-accent-primary transition-colors" onClick={() => setView({ type: 'HOME' })}>HereHaven</h1>
+            <button onClick={() => setView({ type: 'HOME' })} className="flex-shrink-0">
+              <img src="/logo.png" alt="HereHaven Logo" className="h-12" />
+            </button>
             <nav className="hidden md:flex space-x-1">
               {renderNavLinks()}
             </nav>

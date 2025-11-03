@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useContext } from 'react';
 import { Character, LLMModel } from '../types';
 import { saveImage } from '../services/dbService';
@@ -6,7 +5,7 @@ import { UploadIcon, DeleteIcon } from './Icons';
 import { AuthContext } from '../context/AuthContext';
 
 interface CharacterFormProps {
-  onSave: (character: Omit<Character, 'creatorId'> & { creatorId?: string }) => void;
+  onSave: (character: Omit<Character, 'creatorId'> & { creatorId?: string }, avatarFile: File | null) => void;
   onCancel: () => void;
   existingCharacter?: Character;
   isUserAdult?: boolean;
@@ -29,7 +28,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
       situation: '',
       feeling: '',
       appearance: '',
-      isNSFW: false,
+      isBeyondTheHaven: false,
       model: LLMModel.GEMINI_FLASH,
       greeting: '',
       isPublic: true,
@@ -116,7 +115,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
     }
     
     if (!isUserAdult) {
-        finalCharacterData.isNSFW = false;
+        finalCharacterData.isBeyondTheHaven = false;
     }
     
     if (auth?.currentUser?.isSilenced && finalCharacterData.isPublic) {
@@ -125,7 +124,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
     }
 
     if (finalCharacterData.name && finalCharacterData.personality && finalCharacterData.greeting && finalCharacterData.description) {
-        onSave(finalCharacterData);
+        onSave(finalCharacterData, selectedFile);
     } else {
         alert("Please fill in all required fields: Name, Description, Greeting, and Personality.");
     }
@@ -235,14 +234,14 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
             </div>
             {isUserAdult && (
               <div className="flex items-center justify-center pt-6">
-                <label htmlFor="isNSFW" className="flex items-center cursor-pointer">
+                <label htmlFor="isBeyondTheHaven" className="flex items-center cursor-pointer">
                   <div className="relative">
-                    <input type="checkbox" id="isNSFW" name="isNSFW" checked={character.isNSFW} onChange={handleChange} className="sr-only" />
-                    <div className={`block w-14 h-8 rounded-full ${character.isNSFW ? 'bg-accent-primary' : 'bg-tertiary'}`}></div>
-                    <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${character.isNSFW ? 'transform translate-x-6' : ''}`}></div>
+                    <input type="checkbox" id="isBeyondTheHaven" name="isBeyondTheHaven" checked={character.isBeyondTheHaven} onChange={handleChange} className="sr-only" />
+                    <div className={`block w-14 h-8 rounded-full ${character.isBeyondTheHaven ? 'bg-accent-primary' : 'bg-tertiary'}`}></div>
+                    <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${character.isBeyondTheHaven ? 'transform translate-x-6' : ''}`}></div>
                   </div>
                   <div className="ml-3 text-text-primary font-medium">
-                    NSFW Mode
+                    Beyond the Haven Mode
                   </div>
                 </label>
               </div>

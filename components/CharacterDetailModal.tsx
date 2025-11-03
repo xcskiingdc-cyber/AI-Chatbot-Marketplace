@@ -1,8 +1,11 @@
 
-import React, { useState, useMemo } from 'react';
+
+import React, { useState, useMemo, useRef, useEffect, useContext } from 'react';
 import type { Character, User, Comment } from '../types';
-import { CloseIcon, ThumbsUpIcon } from './Icons';
+import { CloseIcon, ThumbsUpIcon, FlagIcon, EditIcon, DeleteIcon, SaveIcon, CancelIcon } from './Icons';
 import Avatar from './Avatar';
+import { AuthContext } from '../context/AuthContext';
+import ConfirmationModal from './ConfirmationModal';
 
 interface CharacterDetailModalProps {
   character: Character;
@@ -13,24 +16,122 @@ interface CharacterDetailModalProps {
   onLike: (characterId: string) => void;
   onFollow: (userId: string) => void;
   onAddComment: (characterId: string, commentText: string, parentId?: string) => void;
+  onReportCharacter: () => void;
+  onReportComment: (comment: Comment) => void;
+  onCreatorClick: (user: User) => void;
 }
 
 const CommentComponent: React.FC<{
+    characterId: string;
     comment: Comment;
     onReply: (commentId: string) => void;
-}> = ({ comment, onReply }) => (
-     <div className="flex items-start space-x-3">
-        <Avatar imageId={comment.avatarUrl} alt={comment.username} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
-        <div className="flex-1 bg-secondary p-3 rounded-lg">
-            <div className="flex items-baseline space-x-2">
-                <p className="font-semibold text-sm text-text-primary">{comment.username}</p>
-                <p className="text-xs text-text-secondary">{new Date(comment.timestamp).toLocaleDateString()}</p>
+    onReport: (comment: Comment) => void;
+    onUserClick: (user: User) => void;
+}> = ({ characterId, comment, onReply, onReport, onUserClick }) => {
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editText, setEditText] = useState(comment.text);
+    const [isDeleteModalOpen, setDeleteModalOpen] = useState(false);
+    const menuRef = useRef<HTMLDivElement>(null);
+    const auth = useContext(AuthContext);
+    const commenter = auth?.findUserById(comment.userId);
+    const canModify = auth?.currentUser?.id === comment.userId || auth?.currentUser?.role === 'Admin';
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+                setIsMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+    
+    const handleSaveEdit = () => {
+        if (editText.trim() && auth?.editComment) {
+            auth.editComment(characterId, comment.id, editText.trim());
+            setIsEditing(false);
+        }
+    };
+
+    const handleConfirmDelete = () => {
+        if(auth?.deleteComment) {
+            auth.deleteComment(characterId, comment.id);
+        }
+        setDeleteModalOpen(false);
+    };
+
+    return (
+     <>
+        <div className="flex items-start space-x-3 group">
+            <button onClick={() => commenter && onUserClick(commenter)} disabled={!commenter} className="flex-shrink-0 disabled:cursor-default">
+                <Avatar imageId={comment.avatarUrl} alt={comment.username} className="w-8 h-8 rounded-full object-cover" />
+            </button>
+            <div className="flex-1 bg-secondary p-3 rounded-lg">
+                <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
+                    <button onClick={() => commenter && onUserClick(commenter)} disabled={!commenter} className="font-semibold text-sm text-text-primary hover:underline disabled:cursor-default disabled:no-underline">{comment.username}</button>
+                    <p className="text-xs text-text-secondary">{new Date(comment.timestamp).toLocaleDateString()}</p>
+                    {comment.isSilenced && <span className="text-xs font-bold text-yellow-400 bg-yellow-900/50 px-2 py-0.5 rounded-full">Silenced</span>}
+                </div>
+                {isEditing ? (
+                    <div className="mt-2">
+                        <textarea 
+                            value={editText} 
+                            onChange={(e) => setEditText(e.target.value)}
+                            className="w-full p-2 bg-primary border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-accent-primary text-text-primary text-sm"
+                            rows={3}
+                        />
+                        <div className="flex gap-2 mt-2">
+                            <button onClick={handleSaveEdit} className="p-1 text-success hover:opacity-80"><SaveIcon className="w-5 h-5" /></button>
+                            <button onClick={() => { setIsEditing(false); setEditText(comment.text); }} className="p-1 text-danger hover:opacity-80"><CancelIcon className="w-5 h-5" /></button>
+                        </div>
+                    </div>
+                ) : (
+                    <p className={`text-sm mt-1 ${comment.isSilenced ? 'text-text-secondary italic' : 'text-text-primary'}`}>{comment.text}</p>
+                )}
+                
+                {!isEditing && (
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => onReply(comment.id)} className="text-xs text-accent-primary hover:underline mt-1">Reply</button>
+                    </div>
+                )}
             </div>
-            <p className="text-sm text-text-primary mt-1">{comment.text}</p>
-            <button onClick={() => onReply(comment.id)} className="text-xs text-accent-primary hover:underline mt-1">Reply</button>
+            <div className="relative" ref={menuRef}>
+                <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="text-text-secondary hover:text-text-primary opacity-0 group-hover:opacity-100 transition-opacity p-1">
+                    &#x22EE;
+                </button>
+                {isMenuOpen && (
+                    <div className="absolute right-0 mt-1 w-32 bg-tertiary rounded-md shadow-lg z-10 border border-border">
+                        {canModify && (
+                            <>
+                                <button onClick={() => { setIsEditing(true); setIsMenuOpen(false); }} className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary">
+                                    <EditIcon className="w-4 h-4" /> Edit
+                                </button>
+                                <button onClick={() => { setDeleteModalOpen(true); setIsMenuOpen(false); }} className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary">
+                                    <DeleteIcon className="w-4 h-4" /> Delete
+                                </button>
+                                <div className="border-t border-border my-1"></div>
+                            </>
+                        )}
+                        <button onClick={() => { onReport(comment); setIsMenuOpen(false); }} className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary">
+                            <FlagIcon className="w-4 h-4" /> Report
+                        </button>
+                    </div>
+                )}
+            </div>
         </div>
-    </div>
-);
+        {isDeleteModalOpen && (
+            <ConfirmationModal
+                title="Delete Comment?"
+                message="Are you sure you want to delete this comment? This action cannot be undone."
+                confirmText="Delete"
+                onConfirm={handleConfirmDelete}
+                onCancel={() => setDeleteModalOpen(false)}
+            />
+        )}
+     </>
+    );
+};
 
 
 const CharacterDetailModal: React.FC<CharacterDetailModalProps> = ({
@@ -41,13 +142,22 @@ const CharacterDetailModal: React.FC<CharacterDetailModalProps> = ({
   onStartChat,
   onLike,
   onFollow,
-  onAddComment
+  onAddComment,
+  onReportCharacter,
+  onReportComment,
+  onCreatorClick,
 }) => {
   const [commentText, setCommentText] = useState('');
   const [replyingTo, setReplyingTo] = useState<{id: string, username: string} | null>(null);
   
   const isLiked = character.likes?.includes(currentUser.id);
   const isFollowingCreator = creator && currentUser.profile.following.includes(creator.id);
+
+  const processText = (text: string) => {
+    return text
+        .replace(/{{char}}/g, character.name)
+        .replace(/{{user}}/g, currentUser.profile.name);
+  };
 
   const handleAddComment = (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,7 +176,11 @@ const CharacterDetailModal: React.FC<CharacterDetailModalProps> = ({
   }
   
   const commentTree = useMemo(() => {
-    const comments = character.comments || [];
+    let comments = character.comments || [];
+    if (currentUser.role !== 'Admin') {
+        comments = comments.filter(c => !c.isSilenced);
+    }
+
     const commentMap = new Map<string, Comment & { replies: Comment[] }>();
     const rootComments: (Comment & { replies: Comment[] })[] = [];
 
@@ -83,10 +197,10 @@ const CharacterDetailModal: React.FC<CharacterDetailModalProps> = ({
     });
 
     return rootComments;
-  }, [character.comments]);
+  }, [character.comments, currentUser.role]);
 
   return (
-    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-40 p-4">
       <div className="bg-primary rounded-lg shadow-xl w-full max-w-4xl h-[90vh] flex flex-col border border-border">
         <div className="p-4 border-b border-border flex justify-between items-center flex-shrink-0">
           <h2 className="text-2xl font-bold text-text-primary">{character.name}</h2>
@@ -95,22 +209,22 @@ const CharacterDetailModal: React.FC<CharacterDetailModalProps> = ({
           </button>
         </div>
         
-        <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-            <div className="w-full md:w-1/3 p-6 flex flex-col items-center space-y-4 border-b md:border-b-0 md:border-r border-border overflow-y-auto">
+        <div className="flex-1 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden">
+            <div className="w-full md:w-1/3 p-6 flex flex-col items-center space-y-4 border-b md:border-b-0 md:border-r border-border md:overflow-y-auto">
                 <Avatar imageId={character.avatarUrl} alt={character.name} className="w-48 h-48 rounded-full object-cover ring-4 ring-accent-primary/50 flex-shrink-0" />
                 <h3 className="text-2xl font-bold text-center">{character.name}</h3>
                 {creator && (
-                    <div className="text-center text-sm text-text-secondary">
+                    <button onClick={() => onCreatorClick(creator)} className="text-center text-sm text-text-secondary hover:opacity-80">
                         <p>Created by</p>
-                        <p className="font-semibold text-text-primary">{creator.profile.name}</p>
-                    </div>
+                        <p className="font-semibold text-text-primary underline">{creator.profile.name}</p>
+                    </button>
                 )}
                 <div className="flex items-center space-x-4 pt-4">
                     <button
                         onClick={() => onLike(character.id)}
                         className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${isLiked ? 'bg-accent-primary text-white' : 'bg-tertiary text-text-primary hover:bg-hover'}`}
                     >
-                        <ThumbsUpIcon className="w-5 h-5" />
+                        <ThumbsUpIcon className={`w-5 h-5 ${isLiked ? 'fill-current' : ''}`} />
                         <span>{character.likes?.length || 0}</span>
                     </button>
                     {creator && creator.id !== currentUser.id && (
@@ -121,6 +235,9 @@ const CharacterDetailModal: React.FC<CharacterDetailModalProps> = ({
                             {isFollowingCreator ? 'Following' : 'Follow'}
                         </button>
                     )}
+                    <button onClick={onReportCharacter} className="p-2 rounded-full bg-tertiary text-text-secondary hover:bg-hover hover:text-text-primary transition-colors" title="Report Character">
+                        <FlagIcon className="w-5 h-5" />
+                    </button>
                 </div>
                 <button 
                     onClick={() => onStartChat(character.id)}
@@ -130,16 +247,16 @@ const CharacterDetailModal: React.FC<CharacterDetailModalProps> = ({
                 </button>
             </div>
             
-            <div className="flex-1 flex flex-col overflow-hidden">
-                <div className="p-6 space-y-4 overflow-y-auto border-b border-border flex-shrink-0">
+            <div className="flex-1 flex flex-col">
+                <div className="p-6 space-y-4 md:overflow-y-auto border-b border-border flex-shrink-0">
                     <div>
                         <h4 className="font-semibold text-accent-primary mb-1">Description</h4>
-                        <p className="text-text-primary whitespace-pre-wrap">{character.description}</p>
+                        <p className="text-text-primary whitespace-pre-wrap">{processText(character.description)}</p>
                     </div>
                     {character.story && (
                         <div>
                             <h4 className="font-semibold text-accent-primary mb-1">Backstory</h4>
-                            <p className="text-text-primary whitespace-pre-wrap">{character.story}</p>
+                            <p className="text-text-primary whitespace-pre-wrap">{processText(character.story)}</p>
                         </div>
                     )}
                     {character.categories?.length > 0 && (
@@ -153,16 +270,16 @@ const CharacterDetailModal: React.FC<CharacterDetailModalProps> = ({
                         </div>
                     )}
                 </div>
-                <div className="p-6 flex-1 flex flex-col overflow-hidden">
+                <div className="p-6 flex-1 flex flex-col">
                     <h4 className="font-semibold text-accent-primary mb-3 flex-shrink-0">Comments ({character.comments?.length || 0})</h4>
                     <div className="flex-1 overflow-y-auto space-y-4 -mr-2 pr-2">
                         {commentTree.map(comment => (
                             <div key={comment.id}>
-                                <CommentComponent comment={comment} onReply={handleStartReply} />
+                                <CommentComponent characterId={character.id} comment={comment} onReply={handleStartReply} onReport={onReportComment} onUserClick={onCreatorClick}/>
                                 {comment.replies.length > 0 && (
                                     <div className="ml-8 mt-3 space-y-3 border-l-2 border-border pl-4">
                                         {comment.replies.map(reply => (
-                                            <CommentComponent key={reply.id} comment={reply} onReply={handleStartReply} />
+                                            <CommentComponent key={reply.id} characterId={character.id} comment={reply} onReply={handleStartReply} onReport={onReportComment} onUserClick={onCreatorClick}/>
                                         ))}
                                     </div>
                                 )}

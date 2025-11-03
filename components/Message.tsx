@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { ChatMessage, Character, User } from '../types';
-import { EditIcon, DeleteIcon, SaveIcon, CancelIcon, SoundOnIcon, RewindIcon, SpinnerIcon, StopIcon } from './Icons';
+import { EditIcon, DeleteIcon, SaveIcon, CancelIcon, SoundOnIcon, RewindIcon, SpinnerIcon, StopIcon, ClipboardIcon, RefreshIcon, FlagIcon } from './Icons';
 import Avatar from './Avatar';
 
 interface MessageProps {
@@ -11,8 +11,11 @@ interface MessageProps {
   onDelete: (messageId:string) => void;
   onPlayTTS: (text: string, messageId: string) => void;
   onRewind: (messageId: string) => void;
+  onRetry: (messageId: string) => void;
+  onReport: (messageId: string) => void;
   isTtsLoading: boolean;
   isTtsPlaying: boolean;
+  isLastBotMessage: boolean;
 }
 
 const formatMessageText = (text: string): React.ReactNode => {
@@ -26,9 +29,10 @@ const formatMessageText = (text: string): React.ReactNode => {
 };
 
 
-const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, onDelete, onPlayTTS, onRewind, isTtsLoading, isTtsPlaying }) => {
+const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, onDelete, onPlayTTS, onRewind, onRetry, onReport, isTtsLoading, isTtsPlaying, isLastBotMessage }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(message.text);
+  const [isCopied, setIsCopied] = useState(false);
 
   const handleSave = () => {
     if (editText.trim()) {
@@ -40,6 +44,13 @@ const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, o
   const handleCancel = () => {
     setEditText(message.text);
     setIsEditing(false);
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(message.text).then(() => {
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
+    });
   };
 
   const isBot = message.sender === 'bot';
@@ -55,14 +66,27 @@ const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, o
                 {isTtsPlaying ? <StopIcon className="w-4 h-4 text-accent-primary"/> : <SoundOnIcon className="w-4 h-4" />}
             </button>
         )}
+        <button onClick={handleCopy} className="p-1 text-text-secondary hover:text-text-primary rounded-full hover:bg-hover" title="Copy Text">
+            <ClipboardIcon className={`w-4 h-4 ${isCopied ? 'text-success' : ''}`} />
+        </button>
+        {isBot && isLastBotMessage && (
+            <button onClick={() => onRetry(message.id)} className="p-1 text-text-secondary hover:text-text-primary rounded-full hover:bg-hover" title="Regenerate Response">
+                <RefreshIcon className="w-4 h-4" />
+            </button>
+        )}
         <button onClick={() => onRewind(message.id)} className="p-1 text-text-secondary hover:text-text-primary rounded-full hover:bg-hover" title="Rewind to here"><RewindIcon className="w-4 h-4" /></button>
         <button onClick={() => setIsEditing(true)} className="p-1 text-text-secondary hover:text-text-primary rounded-full hover:bg-hover" title="Edit Message"><EditIcon className="w-4 h-4" /></button>
         <button onClick={() => onDelete(message.id)} className="p-1 text-text-secondary hover:text-text-primary rounded-full hover:bg-hover" title="Delete Message"><DeleteIcon className="w-4 h-4" /></button>
+        {isBot && (
+            <button onClick={() => onReport(message.id)} className="p-1 text-text-secondary hover:text-text-primary rounded-full hover:bg-hover" title="Report Message">
+                <FlagIcon className="w-4 h-4" />
+            </button>
+        )}
     </div>
   );
 
   const MessageContent = (
-      <div className="max-w-md lg:max-w-2xl xl:max-w-3xl">
+      <div className="max-w-full sm:max-w-md lg:max-w-2xl xl:max-w-3xl">
           <div className={`px-4 py-3 rounded-xl ${isBot ? 'bg-secondary' : 'bg-accent-primary text-white'}`}>
               <p className={`font-bold ${isBot ? 'text-text-primary' : 'text-white'}`}>{name}</p>
               {isEditing ? (
@@ -88,7 +112,7 @@ const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, o
   return (
     <div className={`flex items-start gap-3 sm:gap-4 ${isBot ? 'justify-start' : 'justify-end'}`}>
         {isBot && <Avatar imageId={avatarId} alt={name} className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover flex-shrink-0" />}
-        <div className={`flex items-center gap-2 ${isBot ? 'flex-row' : 'flex-row-reverse'}`}>
+        <div className={`flex w-full items-center gap-2 ${isBot ? 'flex-row' : 'flex-row-reverse'}`}>
             {MessageContent}
             {!isEditing && ActionBox}
         </div>

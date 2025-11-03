@@ -1,16 +1,24 @@
 
-import React, { useState, useContext, useMemo } from 'react';
+
+import React, { useState, useContext, useMemo, useEffect, useCallback, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { GlobalSettings, User, UserType, Character, AIContextSettings, CharacterContextField } from '../types';
+import { GlobalSettings, User, UserType, Character, AIContextSettings, CharacterContextField, UserRole, AppView } from '../types';
 import ConfirmationModal from './ConfirmationModal';
 import ProfileEditModal from './ProfileEditModal';
 import Avatar from './Avatar';
+import { ShieldCheckIcon } from './Icons';
 
-const AdminSettingsView: React.FC = () => {
+interface AdminConsoleViewProps {
+  setView: (view: AppView) => void;
+  setSelectedCharacter: (character: Character) => void;
+  setSelectedCreator: (user: User) => void;
+}
+
+const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({ setView, setSelectedCharacter, setSelectedCreator }) => {
     const auth = useContext(AuthContext);
     const [activeTab, setActiveTab] = useState('stats');
-
-    if (!auth || auth.currentUser?.userType !== 'Admin') {
+    
+    if (!auth || !['Admin', 'Assistant Admin'].includes(auth.currentUser?.role || '')) {
         return <p className="p-8 text-center text-red-400">Access Denied.</p>;
     }
 
@@ -18,13 +26,14 @@ const AdminSettingsView: React.FC = () => {
         { id: 'stats', label: 'Site Stats' },
         { id: 'prompts', label: 'Global Prompts' },
         { id: 'context', label: 'AI Context' },
+        { id: 'kid_mode', label: 'Kid Mode' },
         { id: 'users', label: 'User Management' },
         { id: 'content', label: 'Content Moderation' },
     ];
 
     return (
         <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto">
-            <h1 className="text-3xl font-bold mb-6 text-text-primary">Admin Settings</h1>
+            <h1 className="text-3xl font-bold mb-6 text-text-primary flex items-center gap-3"><ShieldCheckIcon className="w-8 h-8"/> Admin Console</h1>
             <div className="border-b border-border mb-6">
                 <nav className="-mb-px flex space-x-2 sm:space-x-6 overflow-x-auto" aria-label="Tabs">
                     {tabs.map(tab => (
@@ -35,7 +44,7 @@ const AdminSettingsView: React.FC = () => {
                                 activeTab === tab.id
                                 ? 'border-accent-primary text-accent-primary'
                                 : 'border-transparent text-text-secondary hover:text-text-primary hover:border-border'
-                            } whitespace-nowrap py-4 px-1 sm:px-2 border-b-2 font-medium text-sm`}
+                            } whitespace-nowrap py-4 px-1 sm:px-2 border-b-2 font-medium text-sm flex items-center gap-2`}
                         >
                             {tab.label}
                         </button>
@@ -43,12 +52,13 @@ const AdminSettingsView: React.FC = () => {
                 </nav>
             </div>
 
-            <div className="bg-secondary p-4 sm:p-6 rounded-lg border border-border">
+            <div className="bg-secondary p-4 sm:p-6 rounded-lg border border-border min-h-[60vh]">
                 {activeTab === 'stats' && <SiteStatsTab />}
                 {activeTab === 'prompts' && <GlobalPromptsTab />}
                 {activeTab === 'context' && <AIContextManagementTab />}
+                {activeTab === 'kid_mode' && <KidModeManagementTab />}
                 {activeTab === 'users' && <UserManagementTab />}
-                {activeTab === 'content' && <ContentModerationTab />}
+                {activeTab === 'content' && <ContentModerationTab setView={setView}/>}
             </div>
         </div>
     );
@@ -57,7 +67,7 @@ const AdminSettingsView: React.FC = () => {
 const StatCard: React.FC<{ title: string; value?: number | string, children?: React.ReactNode }> = ({ title, value, children }) => (
     <div className="bg-primary p-6 rounded-lg border border-border">
         <h3 className="text-lg font-medium text-text-secondary">{title}</h3>
-        {value && <p className="text-3xl font-bold mt-2 text-text-primary">{value}</p>}
+        {value !== undefined && <p className="text-3xl font-bold mt-2 text-text-primary">{value}</p>}
         {children}
     </div>
 );
@@ -84,7 +94,7 @@ const SiteStatsTab: React.FC = () => {
              <div className="md:col-span-2 lg:col-span-3">
                 <StatCard title="Users by Tier">
                     <div className="flex flex-wrap justify-around mt-2 gap-4">
-                        {['Admin', 'Subscription', 'Ads', 'Free'].map(type => (
+                        {['Subscription', 'Ads', 'Free'].map(type => (
                             <div key={type} className="text-center">
                                 <p className="text-3xl font-bold text-text-primary">{(userStats[type as UserType] || 0)}</p>
                                 <p className="text-sm text-text-secondary">{type}</p>
@@ -99,9 +109,9 @@ const SiteStatsTab: React.FC = () => {
 
 const GlobalPromptsTab: React.FC = () => {
     const auth = useContext(AuthContext);
-    const [prompts, setPrompts] = useState<GlobalSettings>({ sfwPrompt: '', nsfwPrompt: '' });
+    const [prompts, setPrompts] = useState<GlobalSettings>({ havenStoriesPrompt: '', beyondTheHavenPrompt: '', kidModePrompt: '' });
 
-    React.useEffect(() => {
+    useEffect(() => {
         if (auth?.globalSettings) {
             setPrompts(auth.globalSettings);
         }
@@ -118,23 +128,23 @@ const GlobalPromptsTab: React.FC = () => {
     return (
         <div className="space-y-6">
             <div>
-                <label htmlFor="sfwPrompt" className={labelClasses}>Global SFW Prompt</label>
+                <label htmlFor="havenStoriesPrompt" className={labelClasses}>Global Haven Stories Prompt</label>
                 <textarea 
-                    id="sfwPrompt"
-                    value={prompts.sfwPrompt}
-                    onChange={(e) => setPrompts(p => ({ ...p, sfwPrompt: e.target.value }))}
+                    id="havenStoriesPrompt"
+                    value={prompts.havenStoriesPrompt}
+                    onChange={(e) => setPrompts(p => ({ ...p, havenStoriesPrompt: e.target.value }))}
                     className={textAreaClasses}
-                    placeholder="Enter the global SFW prompt. If empty, the hardcoded default will be used."
+                    placeholder="Enter the global Haven Stories prompt. If empty, the hardcoded default will be used."
                 />
             </div>
             <div>
-                <label htmlFor="nsfwPrompt" className={labelClasses}>Global NSFW Prompt</label>
+                <label htmlFor="beyondTheHavenPrompt" className={labelClasses}>Global Beyond the Haven Prompt</label>
                 <textarea 
-                    id="nsfwPrompt"
-                    value={prompts.nsfwPrompt}
-                    onChange={(e) => setPrompts(p => ({ ...p, nsfwPrompt: e.target.value }))}
+                    id="beyondTheHavenPrompt"
+                    value={prompts.beyondTheHavenPrompt}
+                    onChange={(e) => setPrompts(p => ({ ...p, beyondTheHavenPrompt: e.target.value }))}
                     className={textAreaClasses}
-                    placeholder="Enter the global NSFW prompt. If empty, the hardcoded default will be used."
+                    placeholder="Enter the global Beyond the Haven prompt. If empty, the hardcoded default will be used."
                 />
             </div>
             <div className="flex justify-end">
@@ -146,9 +156,59 @@ const GlobalPromptsTab: React.FC = () => {
     );
 };
 
+const KidModeManagementTab: React.FC = () => {
+    const auth = useContext(AuthContext);
+    const [kidPrompt, setKidPrompt] = useState('');
+
+    useEffect(() => {
+        if (auth?.globalSettings.kidModePrompt) {
+            setKidPrompt(auth.globalSettings.kidModePrompt);
+        }
+    }, [auth?.globalSettings.kidModePrompt]);
+
+    const handleSave = () => {
+        if(auth) {
+            auth.updateGlobalSettings({ ...auth.globalSettings, kidModePrompt: kidPrompt });
+            alert('Kid Mode prompt updated!');
+        }
+    };
+    
+    const labelClasses = "block text-sm font-medium text-accent-primary mb-2";
+    const textAreaClasses = "w-full p-2 bg-primary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-primary h-64 font-mono text-sm";
+
+    return (
+        <div className="space-y-6">
+            <div>
+                <label htmlFor="kidModePrompt" className={labelClasses}>Kid Mode Instructions</label>
+                 <p className="text-sm text-text-secondary mb-3">These instructions are added to the system prompt when a user enables 'Kid Mode' in their chat settings. Use this to guide the AI to be more child-friendly.</p>
+                <textarea 
+                    id="kidModePrompt"
+                    value={kidPrompt}
+                    onChange={(e) => setKidPrompt(e.target.value)}
+                    className={textAreaClasses}
+                    placeholder="Example: You are speaking to a young child. Use simple words, short sentences, and a very friendly, encouraging, and patient tone. Avoid complex topics or scary situations."
+                />
+            </div>
+            <div className="flex justify-end">
+                <button onClick={handleSave} className="px-6 py-2 bg-accent-secondary text-white hover:bg-accent-secondary-hover rounded-md transition-colors">
+                    Save Kid Mode Prompt
+                </button>
+            </div>
+        </div>
+    )
+}
+
 const AIContextManagementTab: React.FC = () => {
     const auth = useContext(AuthContext);
-    const [settings, setSettings] = useState<AIContextSettings>({ includedFields: [], historyLength: 20 });
+    const [settings, setSettings] = useState<AIContextSettings>({ includedFields: [], historyLength: 20, maxOutputTokens: 2048 });
+    const [inputValues, setInputValues] = useState({
+        historyLength: '20',
+        maxOutputTokens: '2048'
+    });
+    const [errors, setErrors] = useState({
+        historyLength: '',
+        maxOutputTokens: ''
+    });
 
     const allFields: { id: CharacterContextField; label: string }[] = [
         { id: 'gender', label: 'Gender' },
@@ -160,9 +220,13 @@ const AIContextManagementTab: React.FC = () => {
         { id: 'feeling', label: 'Initial Mood' },
     ];
 
-    React.useEffect(() => {
+    useEffect(() => {
         if (auth?.aiContextSettings) {
             setSettings(auth.aiContextSettings);
+            setInputValues({
+                historyLength: String(auth.aiContextSettings.historyLength),
+                maxOutputTokens: String(auth.aiContextSettings.maxOutputTokens),
+            });
         }
     }, [auth?.aiContextSettings]);
 
@@ -175,19 +239,44 @@ const AIContextManagementTab: React.FC = () => {
         });
     };
 
-    const handleHistoryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const value = parseInt(e.target.value, 10);
-        if (!isNaN(value) && value >= 0 && value <= 100) {
-            setSettings(prev => ({ ...prev, historyLength: value }));
+    const handleInputChange = (key: 'historyLength' | 'maxOutputTokens', value: string) => {
+        setInputValues(prev => ({ ...prev, [key]: value }));
+        if (errors[key]) {
+            setErrors(prev => ({ ...prev, [key]: '' }));
         }
     };
-    
+
     const handleSave = () => {
-        auth?.updateAIContextSettings(settings);
-        alert('AI Context settings updated!');
+        const newErrors = { historyLength: '', maxOutputTokens: '' };
+        let isValid = true;
+
+        const historyLengthNum = parseInt(inputValues.historyLength, 10);
+        if (isNaN(historyLengthNum) || historyLengthNum < 0 || historyLengthNum > 200) {
+            newErrors.historyLength = 'Must be a number between 0 and 200.';
+            isValid = false;
+        }
+
+        const maxOutputTokensNum = parseInt(inputValues.maxOutputTokens, 10);
+        if (isNaN(maxOutputTokensNum) || maxOutputTokensNum < 100 || maxOutputTokensNum > 10000) {
+            newErrors.maxOutputTokens = 'Must be a number between 100 and 10,000.';
+            isValid = false;
+        }
+
+        setErrors(newErrors);
+
+        if (isValid) {
+            auth?.updateAIContextSettings({
+                ...settings,
+                historyLength: historyLengthNum,
+                maxOutputTokens: maxOutputTokensNum,
+            });
+            alert('AI Context settings updated!');
+        }
     };
 
     const labelClasses = "block text-sm font-medium text-accent-primary mb-2";
+    const inputClasses = "w-full max-w-xs p-2 bg-primary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-primary";
+    const errorTextClasses = "text-sm text-red-400 mt-1";
 
     return (
         <div className="space-y-6">
@@ -208,18 +297,33 @@ const AIContextManagementTab: React.FC = () => {
                     ))}
                 </div>
             </div>
-            <div>
-                <label htmlFor="historyLength" className={labelClasses}>Chat History Context Length</label>
-                <p className="text-sm text-text-secondary mb-3">How many previous messages (user and bot combined) to include for context. Recommended: 20-40. Max: 100.</p>
-                <input
-                    type="number"
-                    id="historyLength"
-                    value={settings.historyLength}
-                    onChange={handleHistoryChange}
-                    min="0"
-                    max="100"
-                    className="w-full max-w-xs p-2 bg-primary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-primary"
-                />
+            <div className="grid md:grid-cols-2 gap-6">
+                 <div>
+                    <label htmlFor="historyLength" className={labelClasses}>Chat History Context Length</label>
+                    <p className="text-sm text-text-secondary mb-3">How many previous messages (user and bot combined) to include for context. Recommended: 20-40.</p>
+                    <input
+                        type="text"
+                        inputMode="numeric"
+                        id="historyLength"
+                        value={inputValues.historyLength}
+                        onChange={(e) => handleInputChange('historyLength', e.target.value)}
+                        className={inputClasses}
+                    />
+                    {errors.historyLength && <p className={errorTextClasses}>{errors.historyLength}</p>}
+                </div>
+                 <div>
+                    <label htmlFor="maxOutputTokens" className={labelClasses}>Max Output Tokens</label>
+                    <p className="text-sm text-text-secondary mb-3">Global limit for tokens in an AI response. Approx. 3-4 chars per token. Range: 100-10000.</p>
+                    <input
+                        type="text"
+                        inputMode="numeric"
+                        id="maxOutputTokens"
+                        value={inputValues.maxOutputTokens}
+                        onChange={(e) => handleInputChange('maxOutputTokens', e.target.value)}
+                        className={inputClasses}
+                    />
+                    {errors.maxOutputTokens && <p className={errorTextClasses}>{errors.maxOutputTokens}</p>}
+                </div>
             </div>
              <div className="flex justify-end">
                 <button onClick={handleSave} className="px-6 py-2 bg-accent-secondary text-white hover:bg-accent-secondary-hover rounded-md transition-colors">
@@ -235,6 +339,20 @@ const UserManagementTab: React.FC = () => {
     const [filter, setFilter] = useState('');
     const [userToEdit, setUserToEdit] = useState<User | null>(null);
     const [userToDelete, setUserToDelete] = useState<User | null>(null);
+    const [openMenu, setOpenMenu] = useState<string | null>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+                setOpenMenu(null);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, []);
 
     const filteredUsers = useMemo(() => {
         if (!auth?.allUsers) return [];
@@ -245,9 +363,10 @@ const UserManagementTab: React.FC = () => {
         );
     }, [auth?.allUsers, filter]);
 
-    const handleSaveProfile = (profile: User['profile']) => {
+    const handleSaveProfile = (profile: User['profile'], avatarFile: File | null) => {
         if (userToEdit) {
             auth?.updateAnyUserProfile(userToEdit.id, profile);
+            // Note: Admin edits to profile pictures are not implemented to avoid complexity with dbService
         }
         setUserToEdit(null);
     };
@@ -273,6 +392,7 @@ const UserManagementTab: React.FC = () => {
                     <thead className="bg-tertiary">
                         <tr>
                             <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">User</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Role</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Type</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Status</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Actions</th>
@@ -290,19 +410,8 @@ const UserManagementTab: React.FC = () => {
                                         </div>
                                     </div>
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <select 
-                                        value={user.userType}
-                                        onChange={(e) => auth?.updateUserType(user.id, e.target.value as UserType)}
-                                        className="bg-tertiary border-border rounded-md p-1 text-sm focus:ring-accent-primary focus:border-accent-primary"
-                                        disabled={user.userType === 'Admin'}
-                                    >
-                                        <option>Free</option>
-                                        <option>Ads</option>
-                                        <option>Subscription</option>
-                                        <option>Admin</option>
-                                    </select>
-                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-text-primary">{user.role}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-text-primary">{user.userType}</td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     {user.isSilenced 
                                         ? <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-900/50 text-yellow-300">Silenced</span>
@@ -310,13 +419,31 @@ const UserManagementTab: React.FC = () => {
                                     }
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                    <div className="flex items-center space-x-3">
-                                        <button onClick={() => setUserToEdit(user)} className="text-indigo-400 hover:text-indigo-300">Edit</button>
-                                        {user.userType !== 'Admin' && (
-                                            <>
-                                                <button onClick={() => auth?.silenceUser(user.id, !user.isSilenced)} className="text-yellow-400 hover:text-yellow-300">{user.isSilenced ? 'Unsilence' : 'Silence'}</button>
-                                                <button onClick={() => setUserToDelete(user)} className="text-red-500 hover:text-red-400">Delete</button>
-                                            </>
+                                    <div className="relative" ref={openMenu === user.id ? menuRef : null}>
+                                        <button onClick={() => setOpenMenu(openMenu === user.id ? null : user.id)} className="px-3 py-1 bg-tertiary hover:bg-hover rounded-md">
+                                            Actions &#9662;
+                                        </button>
+                                        {openMenu === user.id && (
+                                            <div className="origin-top-right absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-tertiary ring-1 ring-black ring-opacity-5 z-10 p-1">
+                                                <button onClick={() => { setUserToEdit(user); setOpenMenu(null); }} className="block w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary rounded">Edit Profile</button>
+                                                {user.role !== 'Admin' && (
+                                                    <>
+                                                        <div className="my-1 border-t border-border"></div>
+                                                        <div className="px-3 py-2 text-xs font-semibold text-text-secondary">Change Role</div>
+                                                        {(['User', 'Moderator', 'Assistant Admin'] as UserRole[]).map(role => (
+                                                            <button key={role} disabled={user.role === role} onClick={() => { auth?.updateUserRole(user.id, role); setOpenMenu(null); }} className="block w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary rounded disabled:opacity-50 disabled:cursor-not-allowed">{user.role === role ? `✓ ${role}` : role}</button>
+                                                        ))}
+                                                        <div className="my-1 border-t border-border"></div>
+                                                        <div className="px-3 py-2 text-xs font-semibold text-text-secondary">Change Type</div>
+                                                        {(['Free', 'Ads', 'Subscription'] as UserType[]).map(type => (
+                                                             <button key={type} disabled={user.userType === type} onClick={() => { auth?.updateUserType(user.id, type); setOpenMenu(null); }} className="block w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary rounded disabled:opacity-50 disabled:cursor-not-allowed">{user.userType === type ? `✓ ${type}` : type}</button>
+                                                        ))}
+                                                        <div className="my-1 border-t border-border"></div>
+                                                        <button onClick={() => { auth?.silenceUser(user.id, !user.isSilenced); setOpenMenu(null); }} className="block w-full text-left px-3 py-2 text-sm text-yellow-400 hover:bg-hover hover:text-yellow-300 rounded">{user.isSilenced ? 'Unsilence' : 'Silence User'}</button>
+                                                        <button onClick={() => { setUserToDelete(user); setOpenMenu(null); }} className="block w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-hover hover:text-red-400 rounded">Delete User</button>
+                                                    </>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
                                 </td>
@@ -341,9 +468,10 @@ const UserManagementTab: React.FC = () => {
     );
 };
 
-const ContentModerationTab: React.FC = () => {
+const ContentModerationTab: React.FC<{setView: (view: AppView) => void}> = ({setView}) => {
     const auth = useContext(AuthContext);
     const [filter, setFilter] = useState('');
+    const [charToDelete, setCharToDelete] = useState<Character | null>(null);
     
     const filteredCharacters = useMemo(() => {
         if (!auth?.characters) return [];
@@ -352,6 +480,13 @@ const ContentModerationTab: React.FC = () => {
             c.description.toLowerCase().includes(filter.toLowerCase())
         );
     }, [auth?.characters, filter]);
+    
+    const handleConfirmDelete = () => {
+        if (charToDelete && auth) {
+            auth.deleteCharacter(charToDelete.id);
+        }
+        setCharToDelete(null);
+    };
 
     return (
          <div className="space-y-4">
@@ -392,8 +527,10 @@ const ContentModerationTab: React.FC = () => {
                                             : <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${char.isPublic ? 'bg-green-900/50 text-green-300' : 'bg-gray-600/50 text-gray-300'}`}>{char.isPublic ? 'Public' : 'Private'}</span>
                                         }
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-4">
+                                        <button onClick={() => setView({ type: 'EDIT_CHARACTER', characterId: char.id })} className="text-accent-secondary hover:underline">Edit</button>
                                         <button onClick={() => auth?.silenceCharacter(char.id, !char.isSilencedByAdmin)} className="text-yellow-400 hover:text-yellow-300">{char.isSilencedByAdmin ? 'Unsilence' : 'Silence'}</button>
+                                        <button onClick={() => setCharToDelete(char)} className="text-danger hover:opacity-80">Delete</button>
                                     </td>
                                 </tr>
                             );
@@ -401,8 +538,17 @@ const ContentModerationTab: React.FC = () => {
                     </tbody>
                 </table>
             </div>
+            {charToDelete && (
+                <ConfirmationModal 
+                    title="Delete Character?"
+                    message={`Are you sure you want to permanently delete "${charToDelete.name}"? This action cannot be undone.`}
+                    confirmText="Delete"
+                    onConfirm={handleConfirmDelete}
+                    onCancel={() => setCharToDelete(null)}
+                />
+            )}
         </div>
     );
 };
 
-export default AdminSettingsView;
+export default AdminConsoleView;

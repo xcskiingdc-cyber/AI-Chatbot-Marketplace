@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { ChatSettings, LLMModel, TTSVoices, TTSVoiceName, UserType } from '../types';
-import { CloseIcon, RefreshIcon } from './Icons';
+import { CloseIcon, RefreshIcon, PlayIcon, SpinnerIcon, StopIcon } from './Icons';
 import ConfirmationModal from './ConfirmationModal';
+import { getTextToSpeech } from '../services/geminiService';
+import { decode, decodeAudioData } from '../utils/audioUtils';
 
 interface ChatSettingsModalProps {
   isOpen: boolean;
@@ -15,10 +18,27 @@ interface ChatSettingsModalProps {
 const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, settings, onSave, onResetChat, userType }) => {
   const [currentSettings, setCurrentSettings] = useState<ChatSettings>(settings);
   const [isResetModalOpen, setResetModalOpen] = useState(false);
+  
+  const [isTestPlaying, setIsTestPlaying] = useState<TTSVoiceName | null>(null);
+  const [isTestLoading, setIsTestLoading] = useState<TTSVoiceName | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const activeTestSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
   useEffect(() => {
     setCurrentSettings(settings);
   }, [settings]);
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+        if (activeTestSourceRef.current) {
+            activeTestSourceRef.current.stop();
+        }
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+            audioContextRef.current.close();
+        }
+    }
+  }, []);
 
   if (!isOpen) return null;
 
@@ -34,6 +54,52 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
   const handleSettingChange = <K extends keyof ChatSettings>(key: K, value: ChatSettings[K]) => {
     setCurrentSettings(prev => ({ ...prev, [key]: value }));
   };
+
+  const playTestVoice = async (voice: TTSVoiceName) => {
+    if (isTestPlaying === voice) {
+        if(activeTestSourceRef.current) {
+            activeTestSourceRef.current.stop();
+        }
+        setIsTestPlaying(null);
+        return;
+    }
+
+    if (activeTestSourceRef.current) {
+        activeTestSourceRef.current.stop();
+    }
+    
+    setIsTestLoading(voice);
+    try {
+        const base64Audio = await getTextToSpeech("Hello, this is a test of my voice.", voice);
+        if (base64Audio) {
+            if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+                audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+            }
+            if (audioContextRef.current.state === 'suspended') {
+                await audioContextRef.current.resume();
+            }
+
+            const audioData = decode(base64Audio);
+            const audioBuffer = await decodeAudioData(audioData, audioContextRef.current, 24000, 1);
+            const source = audioContextRef.current.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContextRef.current.destination);
+            
+            source.onended = () => {
+                setIsTestPlaying(null);
+                activeTestSourceRef.current = null;
+            }
+            
+            activeTestSourceRef.current = source;
+            source.start();
+            setIsTestPlaying(voice);
+        }
+    } catch (e) {
+        console.error("Failed to play test voice", e);
+    } finally {
+        setIsTestLoading(null);
+    }
+  }
   
   const formFieldClasses = "w-full p-2 bg-secondary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-primary disabled:opacity-50 disabled:cursor-not-allowed";
   const labelClasses = "block text-sm font-medium text-text-secondary mb-1";
@@ -42,7 +108,7 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+      <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-40 p-4">
         <div className="bg-primary rounded-lg shadow-xl w-full max-w-md relative border border-border">
           <div className="p-4 border-b border-border flex justify-between items-center">
             <h2 className="text-xl font-bold text-text-primary">Chat Settings</h2>
@@ -57,13 +123,22 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
                 Streaming Replies
                 <p className="text-xs text-text-secondary">Receive replies word-by-word.</p>
               </label>
-              <div className="relative">
-                <input type="checkbox" id="isStreaming" name="isStreaming" 
-                       checked={currentSettings.isStreaming} 
-                       onChange={(e) => handleSettingChange('isStreaming', e.target.checked)} 
-                       className="sr-only" />
+              <div className="relative cursor-pointer" onClick={() => handleSettingChange('isStreaming', !currentSettings.isStreaming)}>
+                <input type="checkbox" id="isStreaming" name="isStreaming" checked={currentSettings.isStreaming} readOnly className="sr-only" />
                 <div className={`block w-14 h-8 rounded-full ${currentSettings.isStreaming ? 'bg-accent-primary' : 'bg-tertiary'}`}></div>
                 <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${currentSettings.isStreaming ? 'transform translate-x-6' : ''}`}></div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label htmlFor="kidMode" className="font-medium text-text-primary">
+                Kid Mode
+                <p className="text-xs text-text-secondary">AI uses simpler language.</p>
+              </label>
+              <div className="relative cursor-pointer" onClick={() => handleSettingChange('kidMode', !currentSettings.kidMode)}>
+                <input type="checkbox" id="kidMode" name="kidMode" checked={currentSettings.kidMode} readOnly className="sr-only" />
+                <div className={`block w-14 h-8 rounded-full ${currentSettings.kidMode ? 'bg-accent-primary' : 'bg-tertiary'}`}></div>
+                <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${currentSettings.kidMode ? 'transform translate-x-6' : ''}`}></div>
               </div>
             </div>
 
@@ -85,16 +160,27 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
 
             <div>
               <label htmlFor="ttsVoice" className={labelClasses}>Text-to-Speech Voice</label>
-              <select 
-                id="ttsVoice" 
-                name="ttsVoice" 
-                value={currentSettings.ttsVoice} 
-                onChange={(e) => handleSettingChange('ttsVoice', e.target.value as TTSVoiceName)} 
-                className={formFieldClasses}>
-                {Object.entries(TTSVoices).map(([key, value]) => (
-                  <option key={key} value={key}>{value}</option>
-                ))}
-              </select>
+              <div className="flex items-center gap-2">
+                <select 
+                    id="ttsVoice" 
+                    name="ttsVoice" 
+                    value={currentSettings.ttsVoice} 
+                    onChange={(e) => handleSettingChange('ttsVoice', e.target.value as TTSVoiceName)} 
+                    className={formFieldClasses}>
+                    {Object.entries(TTSVoices).map(([key, value]) => (
+                    <option key={key} value={key}>{value}</option>
+                    ))}
+                </select>
+                <button 
+                    onClick={() => playTestVoice(currentSettings.ttsVoice)}
+                    className="p-2 bg-tertiary rounded-md hover:bg-hover transition-colors"
+                    aria-label="Test Voice"
+                >
+                    {isTestLoading === currentSettings.ttsVoice ? <SpinnerIcon className="w-5 h-5 animate-spin" /> : 
+                     isTestPlaying === currentSettings.ttsVoice ? <StopIcon className="w-5 h-5 text-accent-primary" /> :
+                     <PlayIcon className="w-5 h-5" />}
+                </button>
+              </div>
             </div>
 
             <div className="border-t border-border pt-6">

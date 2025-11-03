@@ -59,7 +59,7 @@ const RecentChatsView: React.FC<RecentChatsViewProps> = ({ characters, userChatH
             </div>
              <button
                 onClick={(e) => { e.stopPropagation(); deleteChatHistory(character.id); }}
-                className="absolute top-1/2 -translate-y-1/2 right-4 p-2 bg-red-800/50 rounded-full text-red-300 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-700/50"
+                className="absolute top-1/2 -translate-y-1/2 right-4 p-2 bg-red-800/50 rounded-full text-red-300 opacity-80 group-hover:opacity-100 transition-opacity hover:bg-red-700/50"
                 aria-label="Delete Chat"
             >
                 <DeleteIcon className="w-5 h-5" />

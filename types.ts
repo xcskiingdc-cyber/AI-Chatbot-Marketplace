@@ -1,14 +1,16 @@
+
+
 export enum LLMModel {
   GEMINI_FLASH = 'gemini-2.5-flash',
   GEMINI_PRO = 'gemini-2.5-pro',
 }
 
 export const TTSVoices = {
-  Kore: "Female A",
-  Zephyr: "Female B",
-  Puck: "Male A",
-  Charon: "Male B",
-  Fenrir: "Male C",
+  Kore: "Female - Calm",
+  Zephyr: "Female - Warm",
+  Puck: "Male - Standard",
+  Charon: "Male - Deep",
+  Fenrir: "Male - Storyteller",
 } as const;
 
 export type TTSVoiceName = keyof typeof TTSVoices;
@@ -17,6 +19,7 @@ export interface ChatSettings {
   model: LLMModel;
   isStreaming: boolean;
   ttsVoice: TTSVoiceName;
+  kidMode: boolean;
   autoRead: boolean;
 }
 
@@ -28,18 +31,102 @@ export interface Comment {
   text: string;
   timestamp: number;
   parentId?: string; // For replies
+  isSilenced?: boolean;
+}
+
+export type ReportReason = 'Underage Content' | 'Hate Speech' | 'Bullying/Harassment' | 'Non-consensual Sexual Acts' | 'Spam' | 'Impersonation' | 'Other';
+
+export type ReportableEntityType = 'character' | 'user' | 'comment' | 'message';
+
+export interface Report {
+  id: string;
+  reporterId: string;
+  entityType: ReportableEntityType;
+  entityId: string;
+  reason: ReportReason;
+  description: string;
+  timestamp: number;
+  isResolved: boolean;
+  notes?: string[]; // Admin notes
+  // Optional content snapshot for context
+  contentSnapshot?: string; 
+  entityCreatorId?: string;
+}
+
+export type AIViolationCategory = 'underage-themes' | 'racism' | 'bullying' | 'non-consensual-sexual-acts' | 'explicit-nudity' | 'suggestive-content' | 'violence' | 'hate-symbols';
+
+export type AIAlertStatus = 'New' | 'In Progress' | 'Resolved';
+
+export interface AIAlertFolder {
+    id: string;
+    name: string;
+}
+
+export interface AIAlert {
+  id: string;
+  entityType: ReportableEntityType | 'image';
+  entityId: string;
+  category: AIViolationCategory;
+  confidence: number;
+  flaggedText?: string;
+  explanation?: string;
+  timestamp: number;
+  status: AIAlertStatus;
+  folderId?: string | null;
+  entityCreatorId?: string;
+}
+
+export type TicketStatus = 'New' | 'In Progress' | 'Resolved';
+
+export interface TicketFolder {
+    id: string;
+    name: string;
+}
+
+export interface DMFolder {
+    id: string;
+    name: string;
+}
+
+export interface Ticket {
+    id: string;
+    submitterId: string;
+    subject: string;
+    description: string;
+    email: string;
+    status: TicketStatus;
+    timestamp: number;
+    folderId?: string | null;
+}
+
+export interface DirectMessage {
+    id: string;
+    senderId: string; // 'ADMIN' or a userId
+    text?: string;
+    imageUrl?: string;
+    timestamp: number;
+}
+
+export interface DMConversation {
+    userId: string; // The user involved in the conversation
+    messages: DirectMessage[];
+    hasUnreadByUser: boolean;
+    hasUnreadByAdmin: boolean;
+    folderId?: string | null;
 }
 
 export interface Notification {
     id: string;
-    type: 'NEW_BOT' | 'NEW_FOLLOWER' | 'NEW_LIKE' | 'NEW_COMMENT' | 'REPLY';
+    type: 'NEW_BOT' | 'NEW_FOLLOWER' | 'NEW_LIKE' | 'NEW_COMMENT' | 'REPLY' | 'NEW_REPORT' | 'NEW_AI_ALERT' | 'NEW_TICKET' | 'NEW_DM';
     message: string;
-    relatedId: string; // characterId or userId
+    relatedId: string; // characterId, userId, reportId, ticketId, etc.
     timestamp: number;
     isRead: boolean;
+    fromUserId?: string;
 }
 
-export type UserType = 'Free' | 'Ads' | 'Subscription' | 'Admin';
+export type UserType = 'Free' | 'Ads' | 'Subscription';
+export type UserRole = 'User' | 'Moderator' | 'Assistant Admin' | 'Admin';
 
 export interface UserProfile {
   name: string;
@@ -59,6 +146,7 @@ export interface User {
   username: string;
   profile: UserProfile;
   userType: UserType;
+  role: UserRole;
   isSilenced: boolean;
 }
 
@@ -78,7 +166,7 @@ export interface Character {
   situation: string;
   feeling: string;
   appearance: string; // New field for physical description
-  isNSFW: boolean;
+  isBeyondTheHaven: boolean;
   model: LLMModel;
   greeting: string;
   isPublic: boolean;
@@ -96,13 +184,15 @@ export interface ChatMessage {
 }
 
 export interface GlobalSettings {
-    sfwPrompt: string;
-    nsfwPrompt: string;
+    havenStoriesPrompt: string;
+    beyondTheHavenPrompt: string;
+    kidModePrompt: string;
 }
 
 export interface AIContextSettings {
     includedFields: CharacterContextField[];
     historyLength: number;
+    maxOutputTokens: number;
 }
 
 
@@ -114,4 +204,6 @@ export type AppView =
   | { type: 'RECENT_CHATS' }
   | { type: 'PROFILE' }
   | { type: 'NOTIFICATIONS' }
-  | { type: 'ADMIN_SETTINGS' };
+  | { type: 'SUPPORT_TICKET'}
+  | { type: 'ADMIN_CONSOLE' }
+  | { type: 'MODERATOR_CONSOLE' };

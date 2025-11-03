@@ -6,7 +6,7 @@ import { saveImage } from '../services/dbService';
 
 interface ProfileEditModalProps {
   userProfile: UserProfile;
-  onSave: (profile: UserProfile) => void;
+  onSave: (profile: UserProfile, avatarFile: File | null) => void;
   onCancel: () => void;
 }
 
@@ -71,7 +71,7 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
     } else if (previewUrl === null) {
       finalProfileData.avatarUrl = `https://i.pravatar.cc/150?u=${profile.name}`;
     }
-    onSave(finalProfileData);
+    onSave(finalProfileData, selectedFile);
   };
   
   const formFieldClasses = "w-full p-2 bg-secondary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-primary text-text-primary";
@@ -79,7 +79,7 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
   const defaultAvatar = `https://i.pravatar.cc/150?u=${profile.name}`;
 
   return (
-    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-40 p-4">
       <div className="bg-primary rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative border border-border">
         <div className="sticky top-0 bg-primary z-10 px-6 py-4 border-b border-border flex justify-between items-center">
             <h2 className="text-2xl font-bold text-text-primary">Edit Profile</h2>
