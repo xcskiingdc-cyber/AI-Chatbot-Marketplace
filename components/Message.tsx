@@ -15,7 +15,6 @@ interface MessageProps {
   onReport: (messageId: string) => void;
   isTtsLoading: boolean;
   isTtsPlaying: boolean;
-  isLastBotMessage: boolean;
 }
 
 const formatMessageText = (text: string): React.ReactNode => {
@@ -24,12 +23,15 @@ const formatMessageText = (text: string): React.ReactNode => {
         if (part.startsWith('*') && part.endsWith('*')) {
             return <em key={index}>{part.slice(1, -1)}</em>;
         }
+        if (part) {
+            return <strong key={index}>{part}</strong>;
+        }
         return part;
     });
 };
 
 
-const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, onDelete, onPlayTTS, onRewind, onRetry, onReport, isTtsLoading, isTtsPlaying, isLastBotMessage }) => {
+const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, onDelete, onPlayTTS, onRewind, onRetry, onReport, isTtsLoading, isTtsPlaying }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(message.text);
   const [isCopied, setIsCopied] = useState(false);
@@ -58,7 +60,7 @@ const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, o
   const name = isBot ? character.name : 'You';
 
   const ActionBox = (
-    <div className="flex items-center self-center gap-1 p-1 bg-tertiary rounded-full shadow-sm flex-shrink-0">
+    <div className="flex items-center gap-1 p-1 bg-tertiary rounded-full shadow-sm flex-shrink-0">
         {isBot && (
           isTtsLoading 
             ? <SpinnerIcon className="w-4 h-4 text-text-secondary animate-spin mx-1" />
@@ -69,7 +71,7 @@ const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, o
         <button onClick={handleCopy} className="p-1 text-text-secondary hover:text-text-primary rounded-full hover:bg-hover" title="Copy Text">
             <ClipboardIcon className={`w-4 h-4 ${isCopied ? 'text-success' : ''}`} />
         </button>
-        {isBot && isLastBotMessage && (
+        {isBot && (
             <button onClick={() => onRetry(message.id)} className="p-1 text-text-secondary hover:text-text-primary rounded-full hover:bg-hover" title="Regenerate Response">
                 <RefreshIcon className="w-4 h-4" />
             </button>
@@ -103,7 +105,14 @@ const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, o
                       </div>
                   </div>
               ) : (
-                  <p className={`whitespace-pre-wrap mt-1 ${isBot ? 'text-text-primary' : 'text-white'}`}>{formatMessageText(message.text)}</p>
+                  <>
+                    <p className={`whitespace-pre-wrap mt-1 ${isBot ? 'text-text-primary' : 'text-white'}`}>{formatMessageText(message.text)}</p>
+                    {isBot && message.statsSnapshot && (
+                        <p className="mt-3 pt-3 border-t border-border/50 text-xs text-text-secondary font-mono">
+                            {message.statsSnapshot}
+                        </p>
+                    )}
+                  </>
               )}
           </div>
       </div>
@@ -112,7 +121,7 @@ const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, o
   return (
     <div className={`flex items-start gap-3 sm:gap-4 ${isBot ? 'justify-start' : 'justify-end'}`}>
         {isBot && <Avatar imageId={avatarId} alt={name} className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover flex-shrink-0" />}
-        <div className={`flex w-full items-center gap-2 ${isBot ? 'flex-row' : 'flex-row-reverse'}`}>
+        <div className={`flex flex-col gap-2 ${isBot ? 'items-start' : 'items-end'}`}>
             {MessageContent}
             {!isEditing && ActionBox}
         </div>

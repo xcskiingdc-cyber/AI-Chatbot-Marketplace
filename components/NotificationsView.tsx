@@ -1,5 +1,6 @@
 
 
+
 import React, { useEffect, useState, useMemo, useContext, useRef } from 'react';
 import type { User, AppView, Character, Notification, DMConversation, DirectMessage } from '../types';
 import { BellIcon, MessageIcon, SendIcon, UploadIcon, CloseIcon } from './Icons';
@@ -368,9 +369,9 @@ const NotificationsView: React.FC<{
                 {activeTab === 'Messages' ? (
                     <MessagesTab />
                 ) : (
+                    // FIX: Removed unused `setView` prop to resolve type error.
                     <NotificationsTab 
                         user={user} 
-                        setView={setView} 
                         onCharacterClick={onCharacterClick} 
                         category={activeTab}
                         onCreatorClick={onCreatorClick}

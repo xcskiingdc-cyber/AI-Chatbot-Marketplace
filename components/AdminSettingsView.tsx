@@ -1,5 +1,4 @@
 
-
 import React, { useState, useContext, useMemo, useEffect, useCallback, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { GlobalSettings, User, UserType, Character, AIContextSettings, CharacterContextField, UserRole, AppView } from '../types';
@@ -7,6 +6,7 @@ import ConfirmationModal from './ConfirmationModal';
 import ProfileEditModal from './ProfileEditModal';
 import Avatar from './Avatar';
 import { ShieldCheckIcon } from './Icons';
+import { BEYOND_THE_HAVEN_PROMPT, HAVEN_STORIES_PROMPT } from '../services/aiService';
 
 interface AdminConsoleViewProps {
   setView: (view: AppView) => void;
@@ -32,9 +32,9 @@ const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({ setView, setSelecte
     ];
 
     return (
-        <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto">
-            <h1 className="text-3xl font-bold mb-6 text-text-primary flex items-center gap-3"><ShieldCheckIcon className="w-8 h-8"/> Admin Console</h1>
-            <div className="border-b border-border mb-6">
+        <div className="p-4 sm:p-6 md:p-8 w-full h-full flex flex-col">
+            <h1 className="text-3xl font-bold mb-6 text-text-primary flex items-center gap-3 flex-shrink-0"><ShieldCheckIcon className="w-8 h-8"/> Admin Console</h1>
+            <div className="border-b border-border mb-6 flex-shrink-0">
                 <nav className="-mb-px flex space-x-2 sm:space-x-6 overflow-x-auto" aria-label="Tabs">
                     {tabs.map(tab => (
                         <button
@@ -52,7 +52,7 @@ const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({ setView, setSelecte
                 </nav>
             </div>
 
-            <div className="bg-secondary p-4 sm:p-6 rounded-lg border border-border min-h-[60vh]">
+            <div className="bg-secondary p-4 sm:p-6 rounded-lg border border-border flex-1 overflow-y-auto">
                 {activeTab === 'stats' && <SiteStatsTab />}
                 {activeTab === 'prompts' && <GlobalPromptsTab />}
                 {activeTab === 'context' && <AIContextManagementTab />}
@@ -113,7 +113,11 @@ const GlobalPromptsTab: React.FC = () => {
 
     useEffect(() => {
         if (auth?.globalSettings) {
-            setPrompts(auth.globalSettings);
+            setPrompts({
+                havenStoriesPrompt: auth.globalSettings.havenStoriesPrompt || HAVEN_STORIES_PROMPT,
+                beyondTheHavenPrompt: auth.globalSettings.beyondTheHavenPrompt || BEYOND_THE_HAVEN_PROMPT,
+                kidModePrompt: auth.globalSettings.kidModePrompt
+            });
         }
     }, [auth?.globalSettings]);
 
@@ -200,14 +204,18 @@ const KidModeManagementTab: React.FC = () => {
 
 const AIContextManagementTab: React.FC = () => {
     const auth = useContext(AuthContext);
-    const [settings, setSettings] = useState<AIContextSettings>({ includedFields: [], historyLength: 20, maxOutputTokens: 2048 });
+    const [settings, setSettings] = useState<AIContextSettings>({ 
+        includedFields: ['gender', 'personality', 'story', 'situation', 'feeling', 'appearance'], 
+        historyLength: 200, 
+        maxResponseCharacters: 2000 
+    });
     const [inputValues, setInputValues] = useState({
-        historyLength: '20',
-        maxOutputTokens: '2048'
+        historyLength: '200',
+        maxResponseCharacters: '2000'
     });
     const [errors, setErrors] = useState({
         historyLength: '',
-        maxOutputTokens: ''
+        maxResponseCharacters: ''
     });
 
     const allFields: { id: CharacterContextField; label: string }[] = [
@@ -225,7 +233,7 @@ const AIContextManagementTab: React.FC = () => {
             setSettings(auth.aiContextSettings);
             setInputValues({
                 historyLength: String(auth.aiContextSettings.historyLength),
-                maxOutputTokens: String(auth.aiContextSettings.maxOutputTokens),
+                maxResponseCharacters: String(auth.aiContextSettings.maxResponseCharacters),
             });
         }
     }, [auth?.aiContextSettings]);
@@ -239,7 +247,7 @@ const AIContextManagementTab: React.FC = () => {
         });
     };
 
-    const handleInputChange = (key: 'historyLength' | 'maxOutputTokens', value: string) => {
+    const handleInputChange = (key: 'historyLength' | 'maxResponseCharacters', value: string) => {
         setInputValues(prev => ({ ...prev, [key]: value }));
         if (errors[key]) {
             setErrors(prev => ({ ...prev, [key]: '' }));
@@ -247,7 +255,7 @@ const AIContextManagementTab: React.FC = () => {
     };
 
     const handleSave = () => {
-        const newErrors = { historyLength: '', maxOutputTokens: '' };
+        const newErrors = { historyLength: '', maxResponseCharacters: '' };
         let isValid = true;
 
         const historyLengthNum = parseInt(inputValues.historyLength, 10);
@@ -256,9 +264,9 @@ const AIContextManagementTab: React.FC = () => {
             isValid = false;
         }
 
-        const maxOutputTokensNum = parseInt(inputValues.maxOutputTokens, 10);
-        if (isNaN(maxOutputTokensNum) || maxOutputTokensNum < 100 || maxOutputTokensNum > 10000) {
-            newErrors.maxOutputTokens = 'Must be a number between 100 and 10,000.';
+        const maxResponseCharactersNum = parseInt(inputValues.maxResponseCharacters, 10);
+        if (isNaN(maxResponseCharactersNum) || maxResponseCharactersNum < 400 || maxResponseCharactersNum > 40000) {
+            newErrors.maxResponseCharacters = 'Must be a number between 400 and 40,000.';
             isValid = false;
         }
 
@@ -268,7 +276,7 @@ const AIContextManagementTab: React.FC = () => {
             auth?.updateAIContextSettings({
                 ...settings,
                 historyLength: historyLengthNum,
-                maxOutputTokens: maxOutputTokensNum,
+                maxResponseCharacters: maxResponseCharactersNum,
             });
             alert('AI Context settings updated!');
         }
@@ -302,8 +310,7 @@ const AIContextManagementTab: React.FC = () => {
                     <label htmlFor="historyLength" className={labelClasses}>Chat History Context Length</label>
                     <p className="text-sm text-text-secondary mb-3">How many previous messages (user and bot combined) to include for context. Recommended: 20-40.</p>
                     <input
-                        type="text"
-                        inputMode="numeric"
+                        type="number"
                         id="historyLength"
                         value={inputValues.historyLength}
                         onChange={(e) => handleInputChange('historyLength', e.target.value)}
@@ -312,17 +319,16 @@ const AIContextManagementTab: React.FC = () => {
                     {errors.historyLength && <p className={errorTextClasses}>{errors.historyLength}</p>}
                 </div>
                  <div>
-                    <label htmlFor="maxOutputTokens" className={labelClasses}>Max Output Tokens</label>
-                    <p className="text-sm text-text-secondary mb-3">Global limit for tokens in an AI response. Approx. 3-4 chars per token. Range: 100-10000.</p>
+                    <label htmlFor="maxResponseCharacters" className={labelClasses}>Max Response Characters</label>
+                    <p className="text-sm text-text-secondary mb-3">Global character limit for an AI response. Range: 400 - 40,000.</p>
                     <input
-                        type="text"
-                        inputMode="numeric"
-                        id="maxOutputTokens"
-                        value={inputValues.maxOutputTokens}
-                        onChange={(e) => handleInputChange('maxOutputTokens', e.target.value)}
+                        type="number"
+                        id="maxResponseCharacters"
+                        value={inputValues.maxResponseCharacters}
+                        onChange={(e) => handleInputChange('maxResponseCharacters', e.target.value)}
                         className={inputClasses}
                     />
-                    {errors.maxOutputTokens && <p className={errorTextClasses}>{errors.maxOutputTokens}</p>}
+                    {errors.maxResponseCharacters && <p className={errorTextClasses}>{errors.maxResponseCharacters}</p>}
                 </div>
             </div>
              <div className="flex justify-end">

@@ -1,7 +1,5 @@
 {
   "name": "HereHaven",
   "description": "HereHaven: A storytelling sanctuary for readers, writers, and artists. Create and interact with AI characters in an immersive, creative space.",
-  "requestFramePermissions": [
-    "microphone"
-  ]
+  "requestFramePermissions": []
 }

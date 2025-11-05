@@ -1,5 +1,10 @@
 
 
+
+
+
+
+
 import React, { useState, useCallback, useMemo, useContext, useEffect } from 'react';
 import useLocalStorage from './hooks/useLocalStorage';
 import type { Character, ChatMessage, AppView, UserProfile, User, Report, Ticket } from './types';
@@ -21,6 +26,11 @@ import ModeratorConsoleView from './components/ModeratorConsoleView';
 import ReportModal from './components/ReportModal';
 import TicketSubmissionModal from './components/TicketSubmissionModal';
 import SuccessModal from './components/SuccessModal';
+import ForumHomeView from './components/ForumHomeView';
+import CategoryView from './components/CategoryView';
+import ThreadView from './components/ThreadView';
+import CreateThreadForm from './components/CreateThreadForm';
+import AiApiSettingsView from './components/AiApiSettingsView';
 
 
 const MainApp: React.FC = () => {
@@ -50,7 +60,10 @@ const MainApp: React.FC = () => {
   if (!auth) {
     throw new Error("AuthContext not found");
   }
-  const { currentUser, characters, chatHistories, saveCharacter, updateChatHistory, updateUserProfile, toggleFavorite, deleteChatHistory, likeCharacter, addComment, followUser, markNotificationsAsRead, findUserById, submitReport, submitTicket } = auth;
+  const { currentUser, characters, chatHistories, saveCharacter, updateChatHistory, updateUserProfile, toggleFavorite, deleteChatHistory, likeCharacter, addComment, followUser, markNotificationsAsRead, findUserById, submitReport, submitTicket, activeApiConnectionId, apiConnections } = auth;
+  
+  const activeConnection = useMemo(() => apiConnections.find(c => c.id === activeApiConnectionId), [apiConnections, activeApiConnectionId]);
+
 
   useEffect(() => {
     // This simulates an initial data fetch. In a real app with an API,
@@ -100,7 +113,7 @@ const MainApp: React.FC = () => {
   }
 
   const navigate = (newView: AppView) => {
-    const protectedViews: AppView['type'][] = ['PROFILE', 'RECENT_CHATS', 'CREATE_CHARACTER', 'NOTIFICATIONS', 'ADMIN_CONSOLE', 'MODERATOR_CONSOLE', 'SUPPORT_TICKET'];
+    const protectedViews: AppView['type'][] = ['PROFILE', 'RECENT_CHATS', 'CREATE_CHARACTER', 'NOTIFICATIONS', 'ADMIN_CONSOLE', 'MODERATOR_CONSOLE', 'SUPPORT_TICKET', 'CREATE_THREAD', 'AI_API_SETTINGS'];
     
     if (protectedViews.includes(newView.type) && !currentUser) {
         setLoginModalOpen(true);
@@ -108,6 +121,11 @@ const MainApp: React.FC = () => {
     }
     
     if (newView.type === 'ADMIN_CONSOLE' && !['Admin', 'Assistant Admin'].includes(currentUser?.role || '')) {
+        setView({ type: 'HOME' });
+        return;
+    }
+
+    if (newView.type === 'AI_API_SETTINGS' && currentUser?.role !== 'Admin') {
         setView({ type: 'HOME' });
         return;
     }
@@ -241,19 +259,31 @@ const MainApp: React.FC = () => {
             setView({ type: 'HOME' });
             return null;
         }
+        if (!activeConnection) {
+            return <div className="p-8 text-center text-red-400">Error: No active AI API connection is configured. An administrator must configure one in the AI API Settings.</div>
+        }
         const history = (currentUser && chatHistories[currentUser.id]?.[currentCharacterForView.id]) || [];
-        return <ChatView character={currentCharacterForView} chatHistory={history} updateChatHistory={updateChatHistory} onReportMessage={(msg) => setReportModalInfo({ entityType: 'message', entityId: msg.id, contentSnapshot: msg.text, entityCreatorId: currentCharacterForView.creatorId })} />;
+        return <ChatView character={currentCharacterForView} chatHistory={history} updateChatHistory={updateChatHistory} onReportMessage={(msg) => setReportModalInfo({ entityType: 'message', entityId: msg.id, contentSnapshot: msg.text, entityCreatorId: currentCharacterForView.creatorId })} activeConnection={activeConnection} />;
       case 'RECENT_CHATS':
         return currentUser ? <RecentChatsView characters={characters} userChatHistories={chatHistories[currentUser.id] || {}} setView={setView} deleteChatHistory={deleteChatHistory} /> : null;
       case 'PROFILE':
-// FIX: Pass the isLoading prop to the ProfileView component to handle loading states correctly.
         return currentUser ? <ProfileView user={currentUser} myCharacters={myCharacters} favoriteCharacters={favoriteCharacters} setView={navigate} onEditProfile={() => setProfileEditModalOpen(true)} toggleFavorite={toggleFavorite} onCharacterClick={setSelectedCharacter} isLoading={isLoading} /> : null;
       case 'NOTIFICATIONS':
         return currentUser ? <NotificationsView user={currentUser} setView={setView} onCharacterClick={setSelectedCharacter} onCreatorClick={setSelectedCreator} /> : null;
       case 'ADMIN_CONSOLE':
         return (currentUser?.role === 'Admin' || currentUser?.role === 'Assistant Admin') ? <AdminConsoleView setView={navigate} setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator}/> : <p>Access Denied</p>;
+      case 'AI_API_SETTINGS':
+        return (currentUser?.role === 'Admin') ? <AiApiSettingsView /> : <p>Access Denied</p>;
       case 'MODERATOR_CONSOLE':
-        return ['Admin', 'Assistant Admin', 'Moderator'].includes(currentUser?.role || '') ? <ModeratorConsoleView initialTab={modConsoleInitialTab} preselectedUser={preselectedDMUser} setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator} /> : <p>Access Denied</p>;
+        return ['Admin', 'Assistant Admin', 'Moderator'].includes(currentUser?.role || '') ? <ModeratorConsoleView setView={navigate} initialTab={modConsoleInitialTab} preselectedUser={preselectedDMUser} setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator} /> : <p>Access Denied</p>;
+      case 'FORUM_HOME':
+        return <ForumHomeView setView={navigate} />;
+      case 'FORUM_CATEGORY':
+        return <CategoryView categoryId={view.categoryId} setView={navigate} />;
+      case 'FORUM_THREAD':
+        return <ThreadView threadId={view.threadId} setView={navigate} onReportPost={(post) => setReportModalInfo({ entityType: 'forumPost', entityId: post.id, contentSnapshot: post.content, entityCreatorId: post.authorId })}/>;
+      case 'CREATE_THREAD':
+        return <CreateThreadForm categoryId={view.categoryId} setView={navigate} />;
       case 'HOME':
       default:
         return (
@@ -329,11 +359,13 @@ const MainApp: React.FC = () => {
         );
     }
   };
+  
+  const isConsoleView = view.type === 'ADMIN_CONSOLE' || view.type === 'MODERATOR_CONSOLE' || view.type === 'AI_API_SETTINGS';
 
   return (
     <div className="flex flex-col h-screen font-sans bg-primary text-text-primary">
       <Navbar setView={navigate} />
-      <main className="flex-1 flex flex-col overflow-y-auto">
+      <main className={`flex-1 flex flex-col overflow-y-auto ${isConsoleView ? 'w-full max-w-screen-2xl mx-auto' : ''}`}>
         {renderContent()}
       </main>
       {isLoginModalOpen && <LoginModal onClose={() => setLoginModalOpen(false)} />}

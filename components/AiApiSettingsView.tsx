@@ -1,0 +1,167 @@
+
+import React, { useState, useContext, useEffect } from 'react';
+import { AuthContext } from '../context/AuthContext';
+import { ApiConnection, ApiProvider } from '../types';
+import { PlusIcon, EditIcon, DeleteIcon, CloseIcon, SaveIcon } from './Icons';
+import ConfirmationModal from './ConfirmationModal';
+
+// Modal for Adding/Editing a connection
+const ApiConnectionModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (connection: Omit<ApiConnection, 'id'> & { id?: string }) => void;
+    existingConnection?: ApiConnection | null;
+}> = ({ isOpen, onClose, onSave, existingConnection }) => {
+    const [connection, setConnection] = useState<Omit<ApiConnection, 'id'>>({
+        name: '',
+        provider: 'Gemini',
+        apiKey: '',
+        baseUrl: '',
+        models: [],
+    });
+    const [modelsStr, setModelsStr] = useState('');
+
+    useEffect(() => {
+        if (existingConnection) {
+            setConnection(existingConnection);
+            setModelsStr(existingConnection.models.join(', '));
+        } else {
+            setConnection({ name: '', provider: 'Gemini', apiKey: '', baseUrl: '', models: [] });
+            setModelsStr('');
+        }
+    }, [existingConnection, isOpen]);
+
+    if (!isOpen) return null;
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onSave({
+            ...connection,
+            id: existingConnection?.id,
+            models: modelsStr.split(',').map(m => m.trim()).filter(Boolean),
+        });
+    };
+    
+    const formFieldClasses = "w-full p-2 bg-secondary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-primary text-text-primary";
+    const labelClasses = "block text-sm font-medium text-text-secondary mb-1";
+    const providers: ApiProvider[] = ['Gemini', 'OpenAI', 'Anthropic', 'Other'];
+
+    return (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+            <div className="bg-primary rounded-lg shadow-xl w-full max-w-lg relative border border-border">
+                <div className="p-4 border-b border-border flex justify-between items-center">
+                    <h2 className="text-xl font-bold">{existingConnection ? 'Edit' : 'Add'} API Connection</h2>
+                    <button onClick={onClose}><CloseIcon className="w-6 h-6" /></button>
+                </div>
+                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                    <div>
+                        <label htmlFor="name" className={labelClasses}>Connection Name *</label>
+                        <input type="text" id="name" value={connection.name} onChange={e => setConnection(c => ({...c, name: e.target.value}))} className={formFieldClasses} required />
+                    </div>
+                    <div>
+                        <label htmlFor="provider" className={labelClasses}>Provider *</label>
+                        <select id="provider" value={connection.provider} onChange={e => setConnection(c => ({...c, provider: e.target.value as ApiProvider}))} className={formFieldClasses}>
+                            {providers.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                    </div>
+                     <div>
+                        <label htmlFor="apiKey" className={labelClasses}>API Key *</label>
+                        <input type="password" id="apiKey" value={connection.apiKey} onChange={e => setConnection(c => ({...c, apiKey: e.target.value}))} className={formFieldClasses} required />
+                    </div>
+                     <div>
+                        <label htmlFor="baseUrl" className={labelClasses}>Base URL (Optional)</label>
+                        <input type="text" id="baseUrl" value={connection.baseUrl} onChange={e => setConnection(c => ({...c, baseUrl: e.target.value}))} className={formFieldClasses} placeholder="e.g., for proxies or self-hosted models" />
+                    </div>
+                    <div>
+                        <label htmlFor="models" className={labelClasses}>Available Models *</label>
+                        <textarea id="models" value={modelsStr} onChange={e => setModelsStr(e.target.value)} className={formFieldClasses} rows={3} placeholder="Comma-separated model names, e.g., gemini-2.5-flash, gemini-2.5-pro" required />
+                    </div>
+                    <div className="flex justify-end gap-4 pt-4">
+                        <button type="button" onClick={onClose} className="px-6 py-2 bg-tertiary rounded-md">Cancel</button>
+                        <button type="submit" className="px-6 py-2 bg-accent-secondary text-white rounded-md">Save Connection</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+
+const AiApiSettingsView: React.FC = () => {
+    const auth = useContext(AuthContext);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [connectionToEdit, setConnectionToEdit] = useState<ApiConnection | null>(null);
+    const [connectionToDelete, setConnectionToDelete] = useState<ApiConnection | null>(null);
+    
+    if (!auth) return null;
+    const { apiConnections, activeApiConnectionId, addApiConnection, updateApiConnection, deleteApiConnection, setActiveApiConnection } = auth;
+
+    const handleSave = (connection: Omit<ApiConnection, 'id'> & { id?: string }) => {
+        if (connection.id) { // Editing
+            updateApiConnection(connection as ApiConnection);
+        } else { // Adding
+            addApiConnection(connection);
+        }
+        setIsModalOpen(false);
+    };
+
+    const handleConfirmDelete = () => {
+        if (connectionToDelete) {
+            deleteApiConnection(connectionToDelete.id);
+        }
+        setConnectionToDelete(null);
+    };
+
+    return (
+        <div className="p-4 sm:p-6 md:p-8">
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-3xl font-bold text-text-primary">AI API Settings</h1>
+                <button onClick={() => { setConnectionToEdit(null); setIsModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 bg-accent-secondary text-white rounded-md hover:bg-accent-secondary-hover">
+                    <PlusIcon className="w-5 h-5" /> Add New Connection
+                </button>
+            </div>
+            <div className="space-y-4">
+                {apiConnections.map(conn => {
+                    const isActive = conn.id === activeApiConnectionId;
+                    return (
+                        <div key={conn.id} className={`p-4 bg-secondary rounded-lg border-2 ${isActive ? 'border-success' : 'border-border'} flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4`}>
+                            <div>
+                                <div className="flex items-center gap-3">
+                                    <h3 className="text-xl font-bold">{conn.name}</h3>
+                                    {isActive && <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-success/20 text-success">Active</span>}
+                                </div>
+                                <p className="text-sm text-text-secondary">Provider: {conn.provider}</p>
+                                <p className="text-xs text-text-secondary mt-2 font-mono">ID: {conn.id}</p>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                                {!isActive && (
+                                    <button onClick={() => setActiveApiConnection(conn.id)} className="px-3 py-1.5 text-sm bg-tertiary rounded-md hover:bg-hover">Set Active</button>
+                                )}
+                                <button onClick={() => { setConnectionToEdit(conn); setIsModalOpen(true); }} className="p-2 bg-tertiary rounded-md hover:bg-hover"><EditIcon className="w-4 h-4" /></button>
+                                <button onClick={() => setConnectionToDelete(conn)} disabled={isActive} className="p-2 bg-tertiary rounded-md hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"><DeleteIcon className="w-4 h-4" /></button>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            <ApiConnectionModal 
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                onSave={handleSave}
+                existingConnection={connectionToEdit}
+            />
+
+            {connectionToDelete && (
+                <ConfirmationModal 
+                    title="Delete Connection?"
+                    message={`Are you sure you want to delete the "${connectionToDelete.name}" connection? This action cannot be undone.`}
+                    onConfirm={handleConfirmDelete}
+                    onCancel={() => setConnectionToDelete(null)}
+                />
+            )}
+        </div>
+    );
+};
+
+export default AiApiSettingsView;

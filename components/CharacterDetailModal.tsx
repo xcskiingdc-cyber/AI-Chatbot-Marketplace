@@ -149,6 +149,13 @@ const CharacterDetailModal: React.FC<CharacterDetailModalProps> = ({
 }) => {
   const [commentText, setCommentText] = useState('');
   const [replyingTo, setReplyingTo] = useState<{id: string, username: string} | null>(null);
+  const COMMENTS_PER_PAGE = 5;
+  const [visibleCommentsCount, setVisibleCommentsCount] = useState(COMMENTS_PER_PAGE);
+
+  useEffect(() => {
+    // Reset visible comments when character changes
+    setVisibleCommentsCount(COMMENTS_PER_PAGE);
+  }, [character.id]);
   
   const isLiked = character.likes?.includes(currentUser.id);
   const isFollowingCreator = creator && currentUser.profile.following.includes(creator.id);
@@ -273,7 +280,7 @@ const CharacterDetailModal: React.FC<CharacterDetailModalProps> = ({
                 <div className="p-6 flex-1 flex flex-col">
                     <h4 className="font-semibold text-accent-primary mb-3 flex-shrink-0">Comments ({character.comments?.length || 0})</h4>
                     <div className="flex-1 overflow-y-auto space-y-4 -mr-2 pr-2">
-                        {commentTree.map(comment => (
+                        {commentTree.slice(0, visibleCommentsCount).map(comment => (
                             <div key={comment.id}>
                                 <CommentComponent characterId={character.id} comment={comment} onReply={handleStartReply} onReport={onReportComment} onUserClick={onCreatorClick}/>
                                 {comment.replies.length > 0 && (
@@ -285,7 +292,15 @@ const CharacterDetailModal: React.FC<CharacterDetailModalProps> = ({
                                 )}
                             </div>
                         ))}
-                         {!character.comments?.length && <p className="text-sm text-text-secondary text-center py-4">No comments yet.</p>}
+                         {commentTree.length > visibleCommentsCount && (
+                            <button 
+                                onClick={() => setVisibleCommentsCount(prev => prev + COMMENTS_PER_PAGE)}
+                                className="w-full mt-4 py-2 text-sm bg-tertiary hover:bg-hover rounded-md transition-colors"
+                            >
+                                Load More Comments
+                            </button>
+                        )}
+                         {commentTree.length === 0 && <p className="text-sm text-text-secondary text-center py-4">No comments yet.</p>}
                     </div>
                     <form onSubmit={handleAddComment} className="mt-4 flex flex-col gap-2 flex-shrink-0">
                         {replyingTo && (

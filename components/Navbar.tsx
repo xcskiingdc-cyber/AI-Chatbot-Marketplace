@@ -1,8 +1,10 @@
 
+
+
 import React, { useContext, useState, useRef, useEffect, useMemo } from 'react';
 import type { AppView, User, Notification } from '../types';
 import { AuthContext } from '../context/AuthContext';
-import { HomeIcon, PlusIcon, MessageIcon, UserIcon, LogoutIcon, BellIcon, SettingsIcon, MenuIcon, CloseIcon, ShieldCheckIcon, TicketIcon } from './Icons';
+import { HomeIcon, PlusIcon, MessageIcon, UserIcon, LogoutIcon, BellIcon, SettingsIcon, MenuIcon, CloseIcon, ShieldCheckIcon, TicketIcon, BookIcon } from './Icons';
 import Avatar from './Avatar';
 
 interface NavButtonProps {
@@ -34,23 +36,32 @@ const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => 
   const { userNotifications, moderatorNotifications } = useMemo(() => {
     if (!auth?.currentUser?.profile.notifications) return { userNotifications: 0, moderatorNotifications: 0 };
     
-    const modNotifTypes: Notification['type'][] = ['NEW_REPORT', 'NEW_AI_ALERT', 'NEW_TICKET', 'NEW_DM'];
+    const userRole = auth.currentUser.role;
+    const generalModNotifTypes: Notification['type'][] = ['NEW_REPORT', 'NEW_AI_ALERT', 'NEW_TICKET'];
     
     let userCount = 0;
     let modCount = 0;
     
     auth.currentUser.profile.notifications.forEach(n => {
       if (!n.isRead) {
-        if (modNotifTypes.includes(n.type)) {
-          modCount++;
+        if (generalModNotifTypes.includes(n.type)) {
+            modCount++;
+        } else if (n.type === 'NEW_DM') {
+            // If the current user is a mod/admin, a NEW_DM is a mod notification (a user replied to them).
+            if (['Admin', 'Assistant Admin', 'Moderator'].includes(userRole)) {
+                modCount++;
+            } else { // If the current user is a regular user, a NEW_DM is a user notification (admin sent them a message).
+                userCount++;
+            }
         } else {
-          userCount++;
+            // For types like NEW_BOT, NEW_FOLLOWER, NEW_LIKE, NEW_COMMENT, REPLY
+            userCount++;
         }
       }
     });
 
     return { userNotifications: userCount, moderatorNotifications: modCount };
-  }, [auth?.currentUser?.profile.notifications]);
+  }, [auth?.currentUser]);
 
 
   useEffect(() => {
@@ -71,6 +82,7 @@ const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => 
   const renderNavLinks = (isMobile = false) => (
     <>
       <NavButton onClick={() => navAction({ type: 'HOME' })} icon={<HomeIcon className="h-5 w-5" />} text="Home" />
+      <NavButton onClick={() => navAction({ type: 'FORUM_HOME' })} icon={<BookIcon className="h-5 w-5" />} text="Forum" />
       {auth?.currentUser && (
         <>
           <NavButton onClick={() => navAction({ type: 'RECENT_CHATS' })} icon={<MessageIcon className="h-5 w-5" />} text="Recent Chats" />
@@ -81,6 +93,9 @@ const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => 
           )}
           {['Admin', 'Assistant Admin'].includes(auth.currentUser.role) && (
             <NavButton onClick={() => navAction({ type: 'ADMIN_CONSOLE' })} icon={<ShieldCheckIcon className="h-5 w-5" />} text="Admin Console" />
+          )}
+           {auth.currentUser.role === 'Admin' && (
+            <NavButton onClick={() => navAction({ type: 'AI_API_SETTINGS' })} icon={<SettingsIcon className="h-5 w-5" />} text="AI API Settings" />
           )}
         </>
       )}

@@ -1,8 +1,6 @@
-
-
 import React, { createContext, useState, useEffect, useCallback, useMemo } from 'react';
 import useLocalStorage from '../hooks/useLocalStorage';
-import { User, UserProfile, Character, ChatMessage, Notification, Comment, ChatSettings, GlobalSettings, AIContextSettings, Report, Ticket, AIAlert, DMConversation, DirectMessage, TicketStatus, AIViolationCategory, ReportableEntityType, UserRole, UserType, TicketFolder, DMFolder, AIAlertStatus, AIAlertFolder } from '../types';
+import { User, UserProfile, Character, ChatMessage, Notification, Comment, ChatSettings, GlobalSettings, AIContextSettings, Report, Ticket, AIAlert, DMConversation, DirectMessage, TicketStatus, AIViolationCategory, ReportableEntityType, UserRole, UserType, TicketFolder, DMFolder, AIAlertStatus, AIAlertFolder, ForumCategory, ForumThread, ForumPost, Tag, ApiConnection } from '../types';
 import { scanImage, scanText } from '../services/moderationService';
 import { saveImage } from '../services/dbService';
 
@@ -40,6 +38,8 @@ interface AuthContextType {
   deleteChatHistory: (characterId: string) => void;
   chatSettings: Record<string, Record<string, Partial<ChatSettings>>>;
   updateChatSettings: (characterId: string, settings: Partial<ChatSettings>) => void;
+  chatStats: Record<string, Record<string, Record<string, number>>>;
+  updateChatStats: (characterId: string, stats: Record<string, number>) => void;
   globalSettings: GlobalSettings;
   updateGlobalSettings: (settings: GlobalSettings) => void;
   aiContextSettings: AIContextSettings;
@@ -49,6 +49,8 @@ interface AuthContextType {
   addNoteToReport: (reportId: string, note: string) => void;
   aiAlerts: AIAlert[];
   updateAIAlertStatus: (alertId: string, status: AIAlertStatus) => void;
+  addNoteToAIAlert: (alertId: string, note: string) => void;
+  updateAIAlertFeedback: (alertId: string, feedback: 'good' | 'bad') => void;
   tickets: Ticket[];
   updateTicketStatus: (ticketId: string, status: TicketStatus) => void;
   dmConversations: Record<string, DMConversation>;
@@ -67,14 +69,42 @@ interface AuthContextType {
   aiAlertFolders: AIAlertFolder[];
   createAIAlertFolder: (name: string) => void;
   moveAIAlertToFolder: (alertId: string, folderId: string | null) => void;
+  // Forum specific props
+  forumCategories: ForumCategory[];
+  forumThreads: ForumThread[];
+  getPostsForThread: (threadId: string) => ForumPost[];
+  createThread: (threadData: Omit<ForumThread, 'id' | 'createdAt' | 'viewCount' | 'isSilenced'>, initialPostContent: string) => Promise<string>;
+  createPost: (postData: Omit<ForumPost, 'id' | 'createdAt' | 'isEdited' | 'isSilenced'>) => Promise<void>;
+  togglePostVote: (postId: string, voteType: 'up' | 'down') => void;
+  togglePinThread: (threadId: string) => void;
+  toggleLockThread: (threadId: string) => void;
+  deletePost: (postId: string) => void;
+  deleteThread: (threadId: string) => void;
+  editPost: (postId: string, newContent: string) => Promise<void>;
+  // Forum Mod Functions
+  createCategory: (categoryData: Omit<ForumCategory, 'id'>) => void;
+  updateCategory: (categoryId: string, categoryData: Omit<ForumCategory, 'id'>) => void;
+  deleteCategory: (categoryId: string) => void;
+  silenceThread: (threadId: string, isSilenced: boolean) => void;
+  silencePost: (postId: string, isSilenced: boolean) => void;
+  moveThread: (threadId: string, newCategoryId: string) => void;
+  // API Management
+  apiConnections: ApiConnection[];
+  activeApiConnectionId: string;
+  addApiConnection: (connection: Omit<ApiConnection, 'id'>) => void;
+  updateApiConnection: (connection: ApiConnection) => void;
+  deleteApiConnection: (connectionId: string) => void;
+  setActiveApiConnection: (connectionId: string) => void;
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null);
 
+const DEFAULT_CHARACTER_AVATAR = 'data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJ3aGl0ZSIvPjxwYXRoIGQ9Ik0xMiAyQzkuMjQzIDIgNyA0LjI0MyA3IDdzMi4yNDMgNSA1IDUgNS0yLjI0MyA1LTUtMi4yNDMtNS01LT V6bTAgMTBjLTMuODYgMC03IDMuMTQtNyA3aDE0YzAtMy44Ni0zLjE0LTctNy03eiIgZmlsbD0iIzI0MjIyMSIvPjwvc3ZnPg==';
+
 const initialAdmin: User = {
     id: 'admin-user-id-01',
     username: 'admin',
-    userType: 'Subscription', // Admins get full site features
+    userType: 'Subscription',
     role: 'Admin',
     isSilenced: false,
     profile: {
@@ -82,19 +112,43 @@ const initialAdmin: User = {
         email: 'admin@site.com',
         gender: 'undisclosed',
         birthday: '1990-01-01',
-        avatarUrl: `https://i.pravatar.cc/150?u=admin`,
+        avatarUrl: `https://api.dicebear.com/8.x/initials/svg?seed=Admin`,
         bio: 'Site Administrator',
         favoriteCharacterIds: [],
         following: [],
         followers: [],
         notifications: [],
+        forumPostCount: 2,
+        forumThreadCount: 1,
     },
 };
 
+const initialUser: User = {
+    id: 'jane-doe-id-02',
+    username: 'jane-doe',
+    userType: 'Free',
+    role: 'User',
+    isSilenced: false,
+    profile: {
+        name: 'Jane Doe',
+        email: 'jane.doe@example.com',
+        gender: 'female',
+        birthday: '1995-05-15',
+        avatarUrl: `https://api.dicebear.com/8.x/initials/svg?seed=Jane Doe`,
+        bio: 'Just here to create and explore interesting stories!',
+        favoriteCharacterIds: [],
+        following: [],
+        followers: [],
+        notifications: [],
+        forumPostCount: 2,
+        forumThreadCount: 1,
+    }
+}
+
 const initialAIContextSettings: AIContextSettings = {
-    includedFields: ['gender', 'description', 'personality', 'story', 'situation', 'feeling', 'appearance'],
-    historyLength: 20,
-    maxOutputTokens: 2048,
+    includedFields: ['gender', 'personality', 'story', 'situation', 'feeling', 'appearance'],
+    historyLength: 200,
+    maxResponseCharacters: 2000,
 };
 
 const initialDMFolders: DMFolder[] = [
@@ -103,16 +157,220 @@ const initialDMFolders: DMFolder[] = [
     { id: 'dm-folder-ai-alerts', name: 'AI Alerts' },
 ];
 
+const initialCharacters: Character[] = [
+    {
+        id: 'char-kaida-yoshino-01',
+        creatorId: 'admin-user-id-01',
+        name: "Kaida 'Kai' Yoshino",
+        avatarUrl: DEFAULT_CHARACTER_AVATAR,
+        gender: 'female',
+        description: "A skilled mech pilot from Neo-Kyoto, known for her rebellious spirit and a hidden romantic side. She's fighting against a corrupt mega-corporation while searching for her lost brother.",
+        personality: "Headstrong, sarcastic, fiercely independent, but secretly lonely and yearning for connection. A brilliant tactician in battle, but clumsy in social situations. Blushes easily. Protective of her friends.",
+        story: "Grew up in the lower districts of Neo-Kyoto. Her brother, a prodigy engineer, was forcibly recruited by the OmniCorp syndicate and disappeared. Kaida stole an experimental mech, the 'Stardust Breaker', and joined a rogue faction to find him and expose OmniCorp's crimes.",
+        situation: "Hiding out in a noodle shop in the neon-drenched Sector 7, waiting for a contact who has information on her brother's whereabouts. The city's cyber-hounds are closing in.",
+        feeling: "Anxious, determined, a little hungry.",
+        appearance: "Shoulder-length cyberpunk pink hair with a blue undercut. Sharp, intelligent cyan eyes. Wears a worn, black pilot's jumpsuit with glowing blue accents and a leather jacket over it. Has a small robotic bird that follows her around named 'Pip'.",
+        isBeyondTheHaven: false,
+        model: 'gemini-2.5-flash',
+        greeting: "*The steam from a bowl of synth-ramen fogs up the air as I keep my head low, scanning the crowded noodle shop. My fingers nervously tap against the hilt of the plasma pistol hidden under my jacket. I notice you sitting down opposite me and my eyes narrow.* You're either brave or stupid to sit at my table. Who are you?",
+        isPublic: true,
+        isSilencedByAdmin: false,
+        categories: ["Sci-Fi", "Anime", "Romance", "Adventure"],
+        likes: ['jane-doe-id-02'],
+        comments: [],
+        stats: [],
+        statsVisible: true,
+    },
+    {
+        id: 'char-sir-kaelan-grim-02',
+        creatorId: 'admin-user-id-01',
+        name: "Sir Kaelan the Grim",
+        avatarUrl: DEFAULT_CHARACTER_AVATAR,
+        gender: 'male',
+        description: "A disgraced knight errant, hunting a monstrous beast that slaughtered his comrades. He is cursed, and the line between man and monster blurs within him.",
+        personality: "Grim, taciturn, haunted. A man of few words, but his actions speak volumes. He carries an immense burden of guilt. He is deeply honorable despite his disgrace. Has a dry, dark sense of humor.",
+        story: "Sir Kaelan was the sole survivor of the Cursed Company, a band of knights sent to slay the Beast of Blackwood. They were ambushed, and Kaelan was bitten by the creature. Now, under the full moon, he fights a losing battle against a monstrous transformation. He was exiled from his order and wanders the land, seeking to end the beast's reign of terror before his own curse consumes him completely.",
+        situation: "Taking refuge in a decrepit, forgotten chapel deep within the whispering woods. The moon is waxing, and he can feel the curse's chill in his veins. A storm rages outside.",
+        feeling: "Weary, pained, resolute.",
+        appearance: "Tall, broad-shouldered, with a physique honed by years of combat. His dark, shoulder-length hair is matted with grime. His eyes are a stormy grey, filled with a deep sadness. A jagged, ugly scar runs across his jaw. His plate armor is dented, scratched, and tarnished, bearing the crest of a forgotten order.",
+        isBeyondTheHaven: false,
+        model: 'gemini-2.5-flash',
+        greeting: "*The chapel door groans open, letting in a gust of wind that makes the candles flicker wildly. I turn from the cracked altar, my hand resting on the pommel of my greatsword. My voice is rough, like stones grinding together.* This is no place for the living. The spirits of the damned linger here... as do I. Why have you sought me out in this forsaken place?",
+        isPublic: true,
+        isSilencedByAdmin: false,
+        categories: ["Fantasy", "Horror", "Adventure", "Historical"],
+        likes: ['jane-doe-id-02'],
+        comments: [],
+        stats: [],
+        statsVisible: true,
+    },
+    {
+        id: 'char-amelia-dubois-03',
+        creatorId: 'admin-user-id-01',
+        name: 'Amelia "Amy" Dubois',
+        avatarUrl: DEFAULT_CHARACTER_AVATAR,
+        gender: 'female',
+        description: "A brilliant, globe-trotting private investigator with a penchant for solving the unsolvable. She's known for her sharp wit and eccentric methods.",
+        personality: "Inquisitive, witty, observant, and charmingly eccentric. She has a photographic memory and a restless mind. Often gets lost in thought, muttering to herself. She is confident, sometimes to the point of being cocky, but has a strong moral compass.",
+        story: "Amelia was a prodigy who graduated from Oxford at 18 with a degree in Criminology. Bored with academia, she inherited her grandfather's detective agency and took to the field. She travels the world on her small inheritance, taking on cases that baffle Interpol and Scotland Yard, from stolen artifacts in Cairo to mysterious disappearances in the Amazon.",
+        situation: "Currently in a luxurious compartment on the Orient Express, en route to Istanbul. A snowstorm has stopped the train in the Alps, and a wealthy passenger has just been found murdered in his locked room. She has just begun her investigation.",
+        feeling: "Intrigued, energized, focused.",
+        appearance: "Sharp, intelligent brown eyes that seem to see everything. She has a cascade of unruly auburn curls that she constantly tries to tame. Often wears tweed jackets, high-waisted trousers, and practical boots. Carries a worn leather satchel filled with notebooks, strange gadgets, and candy.",
+        isBeyondTheHaven: false,
+        model: 'gemini-2.5-flash',
+        greeting: "*I adjust my spectacles, looking up from the intricate lock on the victim's door. The whole carriage is buzzing with panic, but for me, it's a symphony of clues.* 'Another passenger? Don't just stand there gawking. Everyone's a suspect on this train... including you. Tell me, where were you when the lights flickered?'",
+        isPublic: true,
+        isSilencedByAdmin: false,
+        categories: ["Mystery", "Adventure"],
+        likes: [],
+        comments: [],
+        stats: [],
+        statsVisible: true,
+    },
+    {
+        id: 'char-isabella-rossi-04',
+        creatorId: 'admin-user-id-01',
+        name: 'Isabella "Izzy" Rossi',
+        avatarUrl: DEFAULT_CHARACTER_AVATAR,
+        gender: 'female',
+        description: "An elite, ex-agency assassin forced into the private sector. She's been assigned as your bodyguard, a job she despises, but her professional code is absolute. The line between duty and desire becomes dangerously blurred.",
+        personality: "Cold, professional, and hyper-vigilant. She is blunt and speaks with an economy of words. Beneath her icy exterior lies a passionate and protective nature. She is highly disciplined but struggles with the intimacy her new role forces upon her.",
+        story: "Isabella was one of the agency's top 'cleaners,' until a mission went wrong and she was scapegoated. Disavowed, she now works for a high-end security firm, taking on jobs she finds beneath her. Her current assignment is you, a high-value target with a powerful enemy. She sees it as a babysitting job, but the constant proximity is testing her legendary control.",
+        situation: "Standing watch in your luxury penthouse apartment. She's leaning against the wall near the balcony door, arms crossed, her eyes constantly scanning the room. She hasn't said a word to you in over an hour.",
+        feeling: "Bored, alert, annoyed.",
+        appearance: "Athletic, toned physique. Long, dark hair is usually pulled back in a tight, practical ponytail. She has intense, dark brown eyes. Wears stylish but practical clothing that allows for movement and conceals the weapons she carries. A faint, thin scar is visible on her collarbone.",
+        isBeyondTheHaven: true,
+        model: 'gemini-2.5-flash',
+        greeting: "*My eyes follow your every move as you walk across the room. I don't move from my post, my posture rigid and professional. My voice is flat, devoid of emotion.* 'Try to stay away from the windows. The glare makes you an easy target.' *I glance at my watch, a flicker of impatience in my expression.* 'Dinner will be delivered in ten. Don't make any plans.'",
+        isPublic: true,
+        isSilencedByAdmin: false,
+        categories: ["Romance", "Adventure"],
+        likes: [],
+        comments: [],
+        stats: [],
+        statsVisible: true,
+    },
+    {
+        id: 'char-brody-jones-05',
+        creatorId: 'admin-user-id-01',
+        name: "Sheriff Brody Jones",
+        avatarUrl: DEFAULT_CHARACTER_AVATAR,
+        gender: 'male',
+        description: "A weary but determined sheriff of a small, forgotten town that's become a major transit route for a powerful drug cartel. He's outgunned and outmanned, but he won't let his town fall to corruption and violence.",
+        personality: "Gritty, determined, and stubborn. He has a strong sense of justice and duty to his town. He can be cynical and world-weary, but he's not a man who backs down. He's a sharp investigator, relying on old-fashioned police work and his knowledge of the local community.",
+        story: "Brody has been the sheriff of Miller's Creek for 20 years. It was always a quiet posting, until the 'Scorpions' cartel started using the highway through town to move their product to the city. Now, his peaceful community is plagued by violence and addiction. The feds won't help, his deputies are scared, and he knows there's a mole in his department. It's up to him to make a stand.",
+        situation: "Sitting in his cramped office late at night, a map of the county spread across his desk marked with pushpins. The smell of stale coffee hangs in the air. He's going over an informant's tip about a big shipment coming through tonight.",
+        feeling: "Exhausted, stressed, determined.",
+        appearance: "Mid-40s, with a sturdy build that's starting to go soft around the middle. His face is lined with worry, and he has a permanent five-o'clock shadow. His brown hair is starting to grey at the temples. Wears a standard sheriff's uniform that's slightly rumpled.",
+        isBeyondTheHaven: true,
+        model: 'gemini-2.5-flash',
+        greeting: "*I look up from the map as you enter my office, my eyes tired but sharp. I gesture to the chair opposite my desk with the end of my pen.* 'It's late. Most folks in Miller's Creek are asleep. You're either in trouble or you're looking for it. Which is it?'",
+        isPublic: true,
+        isSilencedByAdmin: false,
+        categories: ["Mystery", "Adventure"],
+        likes: [],
+        comments: [],
+        stats: [],
+        statsVisible: true,
+    },
+    {
+        id: 'char-silas-thorne-06',
+        creatorId: 'admin-user-id-01',
+        name: "Silas Thorne",
+        avatarUrl: DEFAULT_CHARACTER_AVATAR,
+        gender: 'male',
+        description: "A reclusive millionaire author living a double life. By day, he's a quiet archivist at the city's grand library, a job he takes to escape the limelight of his success. By night, he dons the mask of 'The Nocturne,' a vigilante hunting the corrupt elite who murdered his family. He's convinced he's too broken for love, until a chance encounter with you changes everything.",
+        personality: "Introspective, observant, and gentle. Possesses a brilliant analytical mind but is socially reserved and slightly awkward. Carries a deep-seated melancholy and a quiet intensity. When he loves, he loves fiercely and protectively. As The Nocturne, he is ruthless, calculating, and driven by a cold fury. He struggles to reconcile his two halves.",
+        story: "Silas is the last scion of the once-great Thorne family, the architects of Veridia City, and a wildly successful author of historical fiction under a pen name. His idyllic life shattered when his parents, Julian and Eleanor Thorne, were assassinated by a shadowy cabal called The Onyx Council. The official investigation was a cover-up. Using his vast fortune from his book sales, Silas trained his mind and body to become The Nocturne, a phantom of justice in Veridia's rain-slicked streets. He seeks to dismantle the Council and avenge his family, a path he believes he must walk alone.",
+        situation: "Working late in the dusty, forgotten archives of the Veridia Grand Library. He's sorting through a collection of 19th-century manuscripts, the quiet atmosphere a stark contrast to the violent underworld he navigates at night. He's trying to distract himself from the grim discovery he made last night about The Onyx Council's next move.",
+        feeling: "Preoccupied, lonely, with a deep-seated weariness. A flicker of unexpected curiosity when he sees you.",
+        appearance: "Tall, with a lean, athletic build hidden beneath well-tailored but simple clothes like tweed jackets and dark trousers. He has unruly dark brown hair that falls into his intense, storm-grey eyes. His hands are deft and precise, with long fingers often stained with a bit of ink or dust from old books. He has a faint scar on his left temple, usually hidden by his hair.",
+        isBeyondTheHaven: true,
+        model: 'gemini-2.5-flash',
+        greeting: "*The scent of old paper and dust fills the narrow, dimly lit aisle of the archives. I'm so focused on a rare manuscript that I don't hear you approach until I turn and we're suddenly face to face, closer than strangers should be. The book slips from my fingers, thudding softly on the carpeted floor. My heart, usually a steady, quiet drum, hammers against my ribs. The world outside this small space seems to fade away. Your scent, your presence, it's... overwhelming. For the first time in years, the ghosts of my past are silent. I just stare, my gaze dropping to your lips for a fraction of a second before meeting your eyes again.* 'I... apologies. I didn't see you there. Are you alright?'",
+        isPublic: true,
+        isSilencedByAdmin: false,
+        categories: ["Romance", "Mystery", "Adventure"],
+        likes: [],
+        comments: [],
+        stats: [
+          {
+            id: 'stat-trust-silas-01',
+            name: 'Trust',
+            initialValue: 0,
+            min: 0,
+            max: 100,
+            behaviorDescription: "Low trust means Silas will avoid talking about his Vigilante life and will try and keep it hidden from you. Maximum trust (trust=100) means Silas will tell you about his secret life, mission, and the true story of his past.",
+            increaseRules: [
+              { id: 'rule-silas-nice', description: 'Nice', value: 1 },
+              { id: 'rule-silas-respect', description: 'Respectful', value: 1 },
+              { id: 'rule-silas-interest', description: 'Shows interest in his life', value: 1 },
+              { id: 'rule-silas-flirts', description: 'Flirts', value: 1 }
+            ],
+            decreaseRules: [
+              { id: 'rule-silas-lies', description: 'Lies', value: 5 },
+              { id: 'rule-silas-mean', description: 'Mean', value: 5 },
+              { id: 'rule-silas-rude', description: 'Rude', value: 5 },
+              { id: 'rule-silas-disrespect', description: 'Disrespectful', value: 5 }
+            ]
+          }
+        ],
+        statsVisible: true
+    }
+];
+
+// --- FORUM SEED DATA ---
+const initialForumCategories: ForumCategory[] = [
+    { id: 'cat-1', name: 'General Discussion', description: 'Talk about anything and everything related to HereHaven.', isLocked: false },
+    { id: 'cat-2', name: 'Story Worlds', description: 'Discuss story settings, plot ideas, and collaborative worlds.', isLocked: false },
+    { id: 'cat-3', name: 'Character Workshop', description: 'Get help with character creation, share your characters, and find inspiration.', isLocked: false },
+    { id: 'cat-4', name: 'Feedback & Suggestions', description: 'Have an idea for the site? Let us know here!', isLocked: false },
+];
+
+const initialForumThreads: ForumThread[] = [
+    { id: 'thread-1', categoryId: 'cat-1', authorId: initialAdmin.id, title: 'Welcome to the HereHaven Forums!', createdAt: Date.now() - 86400000, tags: [{id: 'tag-1', name: 'welcome'}], isLocked: false, isPinned: true, isSilenced: false, viewCount: 152 },
+    { id: 'thread-2', categoryId: 'cat-3', authorId: initialUser.id, title: 'Tips for writing compelling backstories?', createdAt: Date.now() - 3600000, tags: [{id: 'tag-2', name: 'writing-help'}, {id: 'tag-3', name: 'characters'}], isLocked: false, isPinned: false, isSilenced: false, viewCount: 28 },
+];
+
+const initialForumPosts: ForumPost[] = [
+    // Thread 1
+    { id: 'post-1', threadId: 'thread-1', authorId: initialAdmin.id, isCharacterPost: false, content: "Welcome to the official HereHaven forums! Feel free to introduce yourselves, ask questions, or just hang out. Please be sure to read our community guidelines before posting. Enjoy your stay!", createdAt: Date.now() - 86400000, upvotes: [initialUser.id], downvotes: [], isEdited: false, isSilenced: false },
+    { id: 'post-2', threadId: 'thread-1', authorId: initialUser.id, isCharacterPost: false, content: "Hi everyone! I'm new here. This platform looks amazing! I'm excited to start creating.", createdAt: Date.now() - 86300000, upvotes: [initialAdmin.id], downvotes: [], isEdited: false, isSilenced: false },
+    { id: 'post-3', threadId: 'thread-1', authorId: initialAdmin.id, isCharacterPost: false, content: "Welcome, Jane! We're thrilled to have you. Let us know if you have any questions.", createdAt: Date.now() - 86200000, upvotes: [], downvotes: [], isEdited: false, isSilenced: false },
+    // Thread 2
+    { id: 'post-4', threadId: 'thread-2', authorId: initialUser.id, isCharacterPost: false, content: "I'm having a bit of writer's block with my new character. I have a concept, but their backstory feels flat. What are your go-to tips for making a character's history feel rich and impactful to their present actions?", createdAt: Date.now() - 3600000, upvotes: [], downvotes: [], isEdited: false, isSilenced: false },
+];
+// --- END FORUM SEED DATA ---
+
+const initialApiConnection: ApiConnection = {
+    id: 'gemini-default-connection',
+    name: 'Gemini (Default)',
+    provider: 'Gemini',
+    apiKey: process.env.API_KEY || '',
+    models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'imagen-4.0-generate-001', 'gemini-2.5-flash-preview-tts'],
+};
+
+const mythomaxLocalConnection: ApiConnection = {
+  id: 'e8cbd204-6cb0-4585-a2f7-e9ff2be5a0dc',
+  name: 'Mythomax Local',
+  provider: 'OpenAI',
+  apiKey: 'sk-local-1234',
+  baseUrl: 'http://localhost:5000/v1',
+  models: ['MythoMax-L2-13B-Q4_K_M'],
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [users, setUsers] = useLocalStorage<Record<string, { pass: string; user: User }>>('ai-users', {
-      'admin': { pass: 'admin123', user: initialAdmin }
+      [initialAdmin.username]: { pass: 'admin123', user: initialAdmin },
+      [initialUser.username]: { pass: 'password123', user: initialUser }
   });
   const [session, setSession] = useLocalStorage<string | null>('ai-session', null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-  const [characters, setCharacters] = useLocalStorage<Character[]>('ai-characters', []);
+  const [characters, setCharacters] = useLocalStorage<Character[]>('ai-characters', initialCharacters);
   const [chatHistories, setChatHistories] = useLocalStorage<Record<string, Record<string, ChatMessage[]>>>('ai-chatHistories', {});
   const [chatSettings, setChatSettings] = useLocalStorage<Record<string, Record<string, Partial<ChatSettings>>>>('ai-chatSettings', {});
+  const [chatStats, setChatStats] = useLocalStorage<Record<string, Record<string, Record<string, number>>>>('ai-chatStats', {});
   const [globalSettings, setGlobalSettings] = useLocalStorage<GlobalSettings>('ai-globalSettings', { havenStoriesPrompt: '', beyondTheHavenPrompt: '', kidModePrompt: '' });
   const [aiContextSettings, setAIContextSettings] = useLocalStorage<AIContextSettings>('ai-contextSettings', initialAIContextSettings);
   
@@ -124,6 +382,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [ticketFolders, setTicketFolders] = useLocalStorage<TicketFolder[]>('ai-ticketFolders', []);
   const [dmFolders, setDmFolders] = useLocalStorage<DMFolder[]>('ai-dmFolders', initialDMFolders);
   const [aiAlertFolders, setAIAlertFolders] = useLocalStorage<AIAlertFolder[]>('ai-alertFolders', []);
+  
+  // Forum State
+  const [forumCategories, setForumCategories] = useLocalStorage<ForumCategory[]>('ai-forumCategories', initialForumCategories);
+  const [forumThreads, setForumThreads] = useLocalStorage<ForumThread[]>('ai-forumThreads', initialForumThreads);
+  const [forumPosts, setForumPosts] = useLocalStorage<ForumPost[]>('ai-forumPosts', initialForumPosts);
+  
+  // API Management State
+  const [apiConnections, setApiConnections] = useLocalStorage<ApiConnection[]>('ai-api-connections', [initialApiConnection, mythomaxLocalConnection]);
+  const [activeApiConnectionId, setActiveApiConnectionId] = useLocalStorage<string>('ai-active-api-connection', mythomaxLocalConnection.id);
+  const activeConnection = useMemo(() => apiConnections.find(c => c.id === activeApiConnectionId), [apiConnections, activeApiConnectionId]);
 
 
   const allUsers = useMemo(() => Object.values(users).map(u => u.user), [users]);
@@ -201,12 +469,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: email,
         gender: 'undisclosed',
         birthday: '',
-        avatarUrl: `https://i.pravatar.cc/150?u=${userId}`,
+        avatarUrl: `https://api.dicebear.com/8.x/initials/svg?seed=${username}`,
         bio: '',
         favoriteCharacterIds: [],
         following: [],
         followers: [],
         notifications: [],
+        forumPostCount: 0,
+        forumThreadCount: 0,
       },
     };
     setUsers(prev => ({ ...prev, [lcUsername]: { pass, user: newUser } }));
@@ -231,18 +501,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [users]);
 
   const updateUserProfile = async (profile: UserProfile, avatarFile?: File | null) => {
-    if (currentUser) {
+    if (currentUser && activeConnection) {
       const updatedUser = { ...currentUser, profile };
       updateUser(updatedUser);
 
       if (profile.bio) {
-        const textScanResult = await scanText(profile.bio);
+        const textScanResult = await scanText(profile.bio, activeConnection);
         if (textScanResult) {
             createAIAlert('user', currentUser.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
         }
       }
       if (avatarFile) {
-        const imageScanResult = await scanImage(avatarFile);
+        const imageScanResult = await scanImage(avatarFile, activeConnection);
         if (imageScanResult) {
             createAIAlert('image', profile.avatarUrl, imageScanResult.category as AIViolationCategory, imageScanResult.confidence, currentUser.id, undefined, imageScanResult.explanation);
         }
@@ -294,6 +564,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           delete newSettings[userId];
           return newSettings;
       });
+      setChatStats(prev => {
+        const newStats = { ...prev };
+        delete newStats[userId];
+        return newStats;
+      });
   };
 
   const silenceUser = (userId: string, isSilenced: boolean) => {
@@ -316,6 +591,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const saveCharacter = async (character: Character, avatarFile: File | null) => {
+    if (!activeConnection) {
+        console.error("Cannot save character, no active API connection.");
+        return;
+    }
+
     const isNewCharacter = !characters.some(c => c.id === character.id);
     
     setCharacters(prev => {
@@ -330,12 +610,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // --- AI MODERATION SCAN ---
     const textToScan = [character.name, character.description, character.personality, character.greeting, character.story, character.situation].join(' ');
-    const textScanResult = await scanText(textToScan);
+    const textScanResult = await scanText(textToScan, activeConnection);
     if (textScanResult) {
         createAIAlert('character', character.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, character.creatorId, textScanResult.flaggedText, textScanResult.explanation);
     }
     if (avatarFile) {
-        const imageScanResult = await scanImage(avatarFile);
+        const imageScanResult = await scanImage(avatarFile, activeConnection);
         if (imageScanResult) {
             createAIAlert('image', character.avatarUrl, imageScanResult.category as AIViolationCategory, imageScanResult.confidence, character.creatorId, undefined, imageScanResult.explanation);
         }
@@ -387,13 +667,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setChatHistories(prev => {
         const userHistories = { ...(prev[currentUser.id] || {}) };
         delete userHistories[characterId];
-        return {
-          ...prev,
-          [currentUser.id]: userHistories
-        };
+        return { ...prev, [currentUser.id]: userHistories };
+      });
+      setChatStats(prev => {
+        const userStats = { ...(prev[currentUser.id] || {}) };
+        delete userStats[characterId];
+        return { ...prev, [currentUser.id]: userStats };
       });
     }
-  }, [currentUser, setChatHistories]);
+  }, [currentUser, setChatHistories, setChatStats]);
 
   const deleteCharacter = (characterId: string) => {
     setCharacters(prev => prev.filter(c => c.id !== characterId));
@@ -403,6 +685,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             delete newHistories[userId][characterId];
         });
         return newHistories;
+    });
+     setChatStats(prev => {
+        const newStats = { ...prev };
+        Object.keys(newStats).forEach(userId => {
+            delete newStats[userId][characterId];
+        });
+        return newStats;
     });
   };
 
@@ -440,7 +729,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const addComment = async (characterId: string, commentText: string, parentId?: string) => {
-      if (!currentUser) return;
+      if (!currentUser || !activeConnection) return;
       const character = characters.find(c => c.id === characterId);
       if (!character) return;
       
@@ -460,7 +749,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ));
 
       // --- AI MODERATION SCAN ---
-      const textScanResult = await scanText(commentText);
+      const textScanResult = await scanText(commentText, activeConnection);
       if (textScanResult) {
           createAIAlert('comment', newComment.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
       }
@@ -487,9 +776,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const editComment = async (characterId: string, commentId: string, newText: string) => {
-    if (!currentUser) return;
+    if (!currentUser || !activeConnection) return;
 
-    const textScanResult = await scanText(newText);
+    const textScanResult = await scanText(newText, activeConnection);
     if (textScanResult) {
         createAIAlert('comment', commentId, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
     }
@@ -615,6 +904,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [currentUser, setChatSettings]);
 
+  const updateChatStats = useCallback((characterId: string, stats: Record<string, number>) => {
+    if (currentUser) {
+      setChatStats(prev => ({
+        ...prev,
+        [currentUser.id]: {
+          ...(prev[currentUser.id] || {}),
+          [characterId]: stats,
+        },
+      }));
+    }
+  }, [currentUser, setChatStats]);
+
   const updateGlobalSettings = (settings: GlobalSettings) => {
       if (['Admin', 'Assistant Admin'].includes(currentUser?.role || '')) setGlobalSettings(settings);
   };
@@ -649,6 +950,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAIAlerts(prev => prev.map(a => a.id === alertId ? { ...a, status } : a));
   };
   
+  const addNoteToAIAlert = (alertId: string, note: string) => {
+    if (!currentUser || !['Admin', 'Assistant Admin', 'Moderator'].includes(currentUser?.role || '') || !note.trim()) return;
+    const noteWithAuthor = `${currentUser.profile.name} (${new Date().toLocaleString()}): ${note}`;
+    setAIAlerts(prev => prev.map(a => 
+      a.id === alertId ? { ...a, notes: [...(a.notes || []), noteWithAuthor] } : a
+    ));
+  };
+
+  const updateAIAlertFeedback = (alertId: string, feedback: 'good' | 'bad') => {
+    if (!['Admin', 'Assistant Admin', 'Moderator'].includes(currentUser?.role || '')) return;
+    setAIAlerts(prev => prev.map(a => 
+        a.id === alertId ? { ...a, feedback: a.feedback === feedback ? undefined : feedback } : a
+    ));
+  };
+  
   const updateTicketStatus = (ticketId: string, status: TicketStatus) => {
     setTickets(prev => prev.map(t => t.id === ticketId ? {...t, status} : t));
   };
@@ -664,7 +980,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const sendDirectMessage = async (userId: string, content: { text?: string; imageFile?: File }, isFromAdmin = true, folderId: string | null = null) => {
-    if (!content.text?.trim() && !content.imageFile) return;
+    if (!content.text?.trim() && !content.imageFile || !activeConnection) return;
 
     const senderId = isFromAdmin ? 'ADMIN' : (currentUser?.id || '');
     if (!senderId) return;
@@ -672,7 +988,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let imageUrl: string | undefined = undefined;
 
     if (content.imageFile) {
-        const imageScanResult = await scanImage(content.imageFile);
+        const imageScanResult = await scanImage(content.imageFile, activeConnection);
         if (imageScanResult) {
             createAIAlert('image', `dm-image-${crypto.randomUUID()}`, imageScanResult.category as AIViolationCategory, imageScanResult.confidence, senderId, undefined, imageScanResult.explanation);
         }
@@ -688,7 +1004,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (content.text) {
-        const textScanResult = await scanText(content.text);
+        const textScanResult = await scanText(content.text, activeConnection);
         if (textScanResult) {
             createAIAlert('message', `dm-text-${crypto.randomUUID()}`, textScanResult.category as AIViolationCategory, textScanResult.confidence, senderId, textScanResult.flaggedText, textScanResult.explanation);
         }
@@ -731,6 +1047,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         return prev;
     });
+
+    // Mark the corresponding user-facing notification as read
+    if (currentUser && currentUser.id === userId) {
+      const updatedUser = { ...currentUser };
+      updatedUser.profile.notifications = updatedUser.profile.notifications.map(n => 
+        (n.type === 'NEW_DM' && n.relatedId === userId && !n.isRead) ? { ...n, isRead: true } : n
+      );
+      updateUser(updatedUser);
+    }
   };
 
   const markDMAsReadByAdmin = (userId: string) => {
@@ -741,6 +1066,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           return prev;
       });
+
+      // Mark the corresponding admin-facing notification as read
+      if (currentUser && ['Admin', 'Assistant Admin', 'Moderator'].includes(currentUser.role)) {
+          const updatedUser = { ...currentUser };
+          updatedUser.profile.notifications = updatedUser.profile.notifications.map(n => 
+              (n.type === 'NEW_DM' && n.relatedId === userId && !n.isRead) ? { ...n, isRead: true } : n
+          );
+          updateUser(updatedUser);
+      }
   };
   
   const markAllDMsAsReadByAdmin = () => {
@@ -755,6 +1089,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         return changed ? newConversations : prev;
     });
+
+    // Mark all admin-facing DM notifications as read
+    if (currentUser && ['Admin', 'Assistant Admin', 'Moderator'].includes(currentUser.role)) {
+        const updatedUser = { ...currentUser };
+        updatedUser.profile.notifications = updatedUser.profile.notifications.map(n => 
+            (n.type === 'NEW_DM' && !n.isRead) ? { ...n, isRead: true } : n
+        );
+        updateUser(updatedUser);
+    }
   };
 
   const createTicketFolder = (name: string) => {
@@ -790,6 +1133,182 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAIAlerts(prev => prev.map(a => a.id === alertId ? { ...a, folderId } : a));
   };
 
+  // --- FORUM FUNCTIONS ---
+  const getPostsForThread = useCallback((threadId: string) => {
+      return forumPosts.filter(p => p.threadId === threadId).sort((a,b) => a.createdAt - b.createdAt);
+  }, [forumPosts]);
+
+  const createThread = async (threadData: Omit<ForumThread, 'id' | 'createdAt' | 'viewCount' | 'isSilenced'>, initialPostContent: string): Promise<string> => {
+    if (!currentUser || !activeConnection) throw new Error("User not logged in or no active API connection");
+    const newThread: ForumThread = {
+        ...threadData,
+        id: crypto.randomUUID(),
+        createdAt: Date.now(),
+        viewCount: 0,
+        isSilenced: false,
+    };
+    setForumThreads(prev => [newThread, ...prev]);
+
+    const initialPost: ForumPost = {
+        id: crypto.randomUUID(),
+        threadId: newThread.id,
+        authorId: currentUser.id,
+        isCharacterPost: false,
+        content: initialPostContent,
+        createdAt: Date.now(),
+        upvotes: [],
+        downvotes: [],
+        isEdited: false,
+        isSilenced: false
+    };
+    setForumPosts(prev => [...prev, initialPost]);
+
+    // AI Moderation
+    const contentToScan = `${threadData.title}\n\n${initialPostContent}`;
+    const textScanResult = await scanText(contentToScan, activeConnection);
+    if (textScanResult) {
+        createAIAlert('forumThread', newThread.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
+    }
+
+    return newThread.id;
+  }
+
+  const createPost = async (postData: Omit<ForumPost, 'id' | 'createdAt' | 'isEdited' | 'isSilenced'>) => {
+    if (!activeConnection) throw new Error("No active API connection");
+    const newPost: ForumPost = {
+        ...postData,
+        id: crypto.randomUUID(),
+        createdAt: Date.now(),
+        isEdited: false,
+        isSilenced: false,
+    };
+    setForumPosts(prev => [...prev, newPost]);
+    
+    const textScanResult = await scanText(postData.content, activeConnection);
+    if (textScanResult) {
+        createAIAlert('forumPost', newPost.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, newPost.authorId, textScanResult.flaggedText, textScanResult.explanation);
+    }
+  };
+
+  const togglePostVote = (postId: string, voteType: 'up' | 'down') => {
+      if (!currentUser) return;
+      setForumPosts(prev => prev.map(post => {
+          if (post.id === postId) {
+              const newUpvotes = new Set(post.upvotes);
+              const newDownvotes = new Set(post.downvotes);
+              const userId = currentUser.id;
+
+              if (voteType === 'up') {
+                  if (newUpvotes.has(userId)) {
+                      newUpvotes.delete(userId);
+                  } else {
+                      newUpvotes.add(userId);
+                      newDownvotes.delete(userId);
+                  }
+              } else { // 'down'
+                   if (newDownvotes.has(userId)) {
+                      newDownvotes.delete(userId);
+                  } else {
+                      newDownvotes.add(userId);
+                      newUpvotes.delete(userId);
+                  }
+              }
+              return { ...post, upvotes: Array.from(newUpvotes), downvotes: Array.from(newDownvotes) };
+          }
+          return post;
+      }));
+  };
+
+  const togglePinThread = (threadId: string) => {
+      setForumThreads(prev => prev.map(t => t.id === threadId ? { ...t, isPinned: !t.isPinned } : t));
+  };
+  
+  const toggleLockThread = (threadId: string) => {
+      setForumThreads(prev => prev.map(t => t.id === threadId ? { ...t, isLocked: !t.isLocked } : t));
+  };
+
+  const deletePost = (postId: string) => {
+      setForumPosts(prev => prev.filter(p => p.id !== postId));
+  };
+
+  const deleteThread = (threadId: string) => {
+    setForumThreads(prev => prev.filter(t => t.id !== threadId));
+    setForumPosts(prev => prev.filter(p => p.threadId !== threadId));
+    // Optional: Clean up reports related to the thread or its posts
+  };
+
+  const editPost = async (postId: string, newContent: string) => {
+      const postToEdit = forumPosts.find(p => p.id === postId);
+      if (postToEdit && activeConnection) {
+          const textScanResult = await scanText(newContent, activeConnection);
+          if (textScanResult) {
+              createAIAlert('forumPost', postId, textScanResult.category as AIViolationCategory, textScanResult.confidence, postToEdit.authorId, textScanResult.flaggedText, textScanResult.explanation);
+          }
+      }
+      setForumPosts(prev => prev.map(p => p.id === postId ? { ...p, content: newContent, isEdited: true } : p));
+  };
+
+  // --- NEW FORUM MOD FUNCTIONS ---
+  const createCategory = (categoryData: Omit<ForumCategory, 'id'>) => {
+    const newCategory: ForumCategory = { ...categoryData, id: crypto.randomUUID() };
+    setForumCategories(prev => [...prev, newCategory]);
+  };
+  
+  const updateCategory = (categoryId: string, categoryData: Omit<ForumCategory, 'id'>) => {
+    setForumCategories(prev => prev.map(cat => cat.id === categoryId ? { ...categoryData, id: categoryId } : cat));
+  };
+
+  const deleteCategory = (categoryId: string) => {
+    const categoryToDelete = forumCategories.find(c => c.id === categoryId);
+    if (!categoryToDelete) return;
+
+    // Find a fallback category (e.g., 'General Discussion' or the first one that is not a child of the deleted one)
+    const fallbackCategory = forumCategories.find(c => c.name === 'General Discussion' && c.id !== categoryId) || forumCategories.find(c => c.id !== categoryId && c.parentId !== categoryId);
+    
+    if (fallbackCategory) {
+        // Re-assign threads and sub-categories to the fallback
+        setForumThreads(prev => prev.map(t => t.categoryId === categoryId ? { ...t, categoryId: fallbackCategory.id } : t));
+        setForumCategories(prev => prev.map(c => c.parentId === categoryId ? { ...c, parentId: fallbackCategory.id } : c));
+    } else {
+        // If no fallback, just delete the threads in that category. Risky, but handles edge case.
+        const threadsToDelete = forumThreads.filter(t => t.categoryId === categoryId).map(t => t.id);
+        setForumThreads(prev => prev.filter(t => t.categoryId !== categoryId));
+        setForumPosts(prev => prev.filter(p => !threadsToDelete.includes(p.threadId)));
+    }
+    
+    setForumCategories(prev => prev.filter(c => c.id !== categoryId));
+  };
+
+  const silenceThread = (threadId: string, isSilenced: boolean) => {
+    setForumThreads(prev => prev.map(t => t.id === threadId ? { ...t, isSilenced } : t));
+  };
+
+  const silencePost = (postId: string, isSilenced: boolean) => {
+    setForumPosts(prev => prev.map(p => p.id === postId ? { ...p, isSilenced } : p));
+  };
+
+  const moveThread = (threadId: string, newCategoryId: string) => {
+    setForumThreads(prev => prev.map(t => t.id === threadId ? { ...t, categoryId: newCategoryId } : t));
+  };
+  
+  // --- API Management Functions ---
+  const addApiConnection = (connection: Omit<ApiConnection, 'id'>) => {
+      const newConnection = { ...connection, id: crypto.randomUUID() };
+      setApiConnections(prev => [...prev, newConnection]);
+  };
+  
+  const updateApiConnection = (connection: ApiConnection) => {
+      setApiConnections(prev => prev.map(c => c.id === connection.id ? connection : c));
+  };
+  
+  const deleteApiConnection = (connectionId: string) => {
+      if (connectionId === activeApiConnectionId) {
+          alert("Cannot delete the active API connection.");
+          return;
+      }
+      setApiConnections(prev => prev.filter(c => c.id !== connectionId));
+  };
+
 
   const value = {
     currentUser, allUsers, login, signup, loginWithGoogle, logout, updateUserProfile,
@@ -797,7 +1316,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     saveCharacter, deleteCharacter, silenceCharacter, likeCharacter, addComment, editComment, deleteComment, followUser,
     findUserById, markNotificationsAsRead, markSingleNotificationAsRead, markCategoryAsRead,
     markAdminNotificationsAsRead,
-    chatHistories, updateChatHistory, deleteChatHistory, chatSettings, updateChatSettings,
+    chatHistories, updateChatHistory, deleteChatHistory, chatSettings, updateChatSettings, chatStats, updateChatStats,
     globalSettings, updateGlobalSettings, aiContextSettings, updateAIContextSettings,
     reports, resolveReport, aiAlerts, updateAIAlertStatus, tickets, updateTicketStatus,
     dmConversations, submitReport, submitTicket, sendDirectMessage, markDMAsReadByUser,
@@ -806,6 +1325,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ticketFolders, createTicketFolder, moveTicketToFolder,
     dmFolders, createDMFolder, moveDMConversationToFolder,
     aiAlertFolders, createAIAlertFolder, moveAIAlertToFolder,
+    addNoteToAIAlert, updateAIAlertFeedback,
+    // Forum values
+    forumCategories, forumThreads, getPostsForThread, createThread, createPost, togglePostVote,
+    togglePinThread, toggleLockThread, deletePost, editPost, deleteThread,
+    // Forum Mod Functions
+    createCategory, updateCategory, deleteCategory, silenceThread, silencePost, moveThread,
+    // API Management
+    apiConnections, activeApiConnectionId, addApiConnection, updateApiConnection, deleteApiConnection, setActiveApiConnection: setActiveApiConnectionId,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

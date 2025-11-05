@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../types';
 import { CloseIcon, UploadIcon, DeleteIcon } from './Icons';
@@ -69,14 +70,14 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
             return;
         }
     } else if (previewUrl === null) {
-      finalProfileData.avatarUrl = `https://i.pravatar.cc/150?u=${profile.name}`;
+      finalProfileData.avatarUrl = `https://api.dicebear.com/8.x/initials/svg?seed=${profile.name}`;
     }
     onSave(finalProfileData, selectedFile);
   };
   
   const formFieldClasses = "w-full p-2 bg-secondary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-primary text-text-primary";
   const labelClasses = "block text-sm font-medium text-text-secondary mb-2";
-  const defaultAvatar = `https://i.pravatar.cc/150?u=${profile.name}`;
+  const defaultAvatar = `https://api.dicebear.com/8.x/initials/svg?seed=${profile.name}`;
 
   return (
     <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-40 p-4">

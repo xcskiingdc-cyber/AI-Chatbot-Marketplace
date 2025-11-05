@@ -1,9 +1,6 @@
 
 
-export enum LLMModel {
-  GEMINI_FLASH = 'gemini-2.5-flash',
-  GEMINI_PRO = 'gemini-2.5-pro',
-}
+
 
 export const TTSVoices = {
   Kore: "Female - Calm",
@@ -16,11 +13,10 @@ export const TTSVoices = {
 export type TTSVoiceName = keyof typeof TTSVoices;
 
 export interface ChatSettings {
-  model: LLMModel;
+  model: string;
   isStreaming: boolean;
   ttsVoice: TTSVoiceName;
   kidMode: boolean;
-  autoRead: boolean;
 }
 
 export interface Comment {
@@ -36,7 +32,7 @@ export interface Comment {
 
 export type ReportReason = 'Underage Content' | 'Hate Speech' | 'Bullying/Harassment' | 'Non-consensual Sexual Acts' | 'Spam' | 'Impersonation' | 'Other';
 
-export type ReportableEntityType = 'character' | 'user' | 'comment' | 'message';
+export type ReportableEntityType = 'character' | 'user' | 'comment' | 'message' | 'forumThread' | 'forumPost';
 
 export interface Report {
   id: string;
@@ -74,6 +70,8 @@ export interface AIAlert {
   status: AIAlertStatus;
   folderId?: string | null;
   entityCreatorId?: string;
+  notes?: string[];
+  feedback?: 'good' | 'bad';
 }
 
 export type TicketStatus = 'New' | 'In Progress' | 'Resolved';
@@ -139,6 +137,8 @@ export interface UserProfile {
   following: string[]; // Array of user IDs they follow
   followers: string[]; // Array of user IDs who follow them
   notifications: Notification[];
+  forumPostCount: number;
+  forumThreadCount: number;
 }
 
 export interface User {
@@ -153,6 +153,22 @@ export interface User {
 // Fields that can be dynamically included in the AI context
 export type CharacterContextField = 'gender' | 'description' | 'personality' | 'story' | 'situation' | 'feeling' | 'appearance';
 
+export interface StatRule {
+  id: string;
+  description: string;
+  value: number;
+}
+
+export interface CharacterStat {
+  id: string;
+  name: string;
+  initialValue: number;
+  min: number;
+  max: number;
+  behaviorDescription: string;
+  increaseRules: StatRule[];
+  decreaseRules: StatRule[];
+}
 
 export interface Character {
   id: string;
@@ -167,13 +183,15 @@ export interface Character {
   feeling: string;
   appearance: string; // New field for physical description
   isBeyondTheHaven: boolean;
-  model: LLMModel;
+  model: string;
   greeting: string;
   isPublic: boolean;
   isSilencedByAdmin: boolean;
   categories: string[];
   likes: string[]; // Array of user IDs
   comments: Comment[];
+  stats: CharacterStat[];
+  statsVisible: boolean;
 }
 
 export interface ChatMessage {
@@ -181,6 +199,7 @@ export interface ChatMessage {
   sender: 'user' | 'bot';
   text: string;
   timestamp: number;
+  statsSnapshot?: string;
 }
 
 export interface GlobalSettings {
@@ -192,7 +211,59 @@ export interface GlobalSettings {
 export interface AIContextSettings {
     includedFields: CharacterContextField[];
     historyLength: number;
-    maxOutputTokens: number;
+    maxResponseCharacters: number;
+}
+
+// Forum interfaces
+export interface Tag {
+  id: string;
+  name: string;
+}
+
+export interface ForumPost {
+  id: string;
+  threadId: string;
+  authorId: string; // Can be a User ID or a Character ID
+  isCharacterPost: boolean;
+  content: string;
+  createdAt: number;
+  upvotes: string[]; // User IDs
+  downvotes: string[]; // User IDs
+  isEdited: boolean;
+  isSilenced: boolean;
+}
+
+export interface ForumThread {
+  id: string;
+  categoryId: string;
+  authorId: string;
+  title: string;
+  createdAt: number;
+  tags: Tag[];
+  isLocked: boolean;
+  isPinned: boolean;
+  isSilenced: boolean;
+  viewCount: number;
+}
+
+export interface ForumCategory {
+  id: string;
+  name: string;
+  description: string;
+  parentId?: string | null; // For subcategories
+  isLocked: boolean;
+}
+
+// AI API Management
+export type ApiProvider = 'Gemini' | 'OpenAI' | 'Anthropic' | 'Other';
+
+export interface ApiConnection {
+  id: string;
+  name: string;
+  provider: ApiProvider;
+  apiKey: string;
+  baseUrl?: string;
+  models: string[]; 
 }
 
 
@@ -206,4 +277,9 @@ export type AppView =
   | { type: 'NOTIFICATIONS' }
   | { type: 'SUPPORT_TICKET'}
   | { type: 'ADMIN_CONSOLE' }
-  | { type: 'MODERATOR_CONSOLE' };
+  | { type: 'MODERATOR_CONSOLE' }
+  | { type: 'AI_API_SETTINGS' }
+  | { type: 'FORUM_HOME' }
+  | { type: 'FORUM_CATEGORY', categoryId: string }
+  | { type: 'FORUM_THREAD', threadId: string }
+  | { type: 'CREATE_THREAD', categoryId: string };

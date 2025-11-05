@@ -1,25 +1,35 @@
 
 
+
+
+
 import React, { useState, useContext, useMemo, useEffect, useCallback, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { User, Character, Report, Ticket, AIAlert, DMConversation, DirectMessage, TicketStatus, Comment, UserType, TicketFolder, DMFolder, Notification, AIAlertStatus } from '../types';
+import { User, Character, Report, Ticket, AIAlert, DMConversation, DirectMessage, TicketStatus, Comment, UserType, TicketFolder, DMFolder, Notification, AIAlertStatus, AppView, ForumThread, ForumPost } from '../types';
 import ConfirmationModal from './ConfirmationModal';
 import ProfileEditModal from './ProfileEditModal';
 import Avatar from './Avatar';
-import { SendIcon, TicketIcon, PlusIcon, UploadIcon, CloseIcon } from './Icons';
+import { SendIcon, TicketIcon, PlusIcon, UploadIcon, CloseIcon, ThumbsUpIcon, ThumbsDownIcon } from './Icons';
 import useIndexedDBImage from '../hooks/useIndexedDBImage';
+import ForumModerationTab from './ForumModerationTab';
+
+interface DmUserContext {
+    user: User;
+    sourceFolder?: 'Reports' | 'Ticketing System' | 'AI Alerts';
+}
 
 interface ModeratorConsoleViewProps {
   setSelectedCharacter: (character: Character) => void;
   setSelectedCreator: (user: User) => void;
+  setView: (view: AppView) => void;
   initialTab?: string;
   preselectedUser?: User | null;
 }
 
-const ModeratorConsoleView: React.FC<ModeratorConsoleViewProps> = ({ setSelectedCharacter, setSelectedCreator, initialTab, preselectedUser }) => {
+const ModeratorConsoleView: React.FC<ModeratorConsoleViewProps> = ({ setSelectedCharacter, setSelectedCreator, setView, initialTab, preselectedUser }) => {
     const auth = useContext(AuthContext);
     const [activeTab, setActiveTab] = useState(initialTab || 'reports');
-    const [dmUserContext, setDmUserContext] = useState(preselectedUser ? { user: preselectedUser } : null);
+    const [dmUserContext, setDmUserContext] = useState<DmUserContext | null>(preselectedUser ? { user: preselectedUser } : null);
 
     useEffect(() => {
         if (initialTab) setActiveTab(initialTab);
@@ -80,12 +90,13 @@ const ModeratorConsoleView: React.FC<ModeratorConsoleViewProps> = ({ setSelected
         { id: 'ai_alerts', label: 'AI Mod Alerts', count: unreadNotifs.alerts },
         { id: 'tickets', label: 'Ticketing System', count: unreadNotifs.tickets },
         { id: 'dms', label: 'Direct Messages', count: unreadDMs },
+        { id: 'forum', label: 'Forum Moderation', count: 0 }, // Count can be added later
     ];
 
     return (
-        <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto">
-            <h1 className="text-3xl font-bold mb-6 text-text-primary flex items-center gap-3"><TicketIcon className="w-8 h-8"/> Moderator Console</h1>
-            <div className="border-b border-border mb-6">
+        <div className="p-4 sm:p-6 md:p-8 w-full h-full flex flex-col">
+            <h1 className="text-3xl font-bold mb-6 text-text-primary flex items-center gap-3 flex-shrink-0"><TicketIcon className="w-8 h-8"/> Moderator Console</h1>
+            <div className="border-b border-border mb-6 flex-shrink-0">
                 <nav className="-mb-px flex space-x-2 sm:space-x-6 overflow-x-auto" aria-label="Tabs">
                     {tabs.map(tab => (
                         <button
@@ -104,11 +115,12 @@ const ModeratorConsoleView: React.FC<ModeratorConsoleViewProps> = ({ setSelected
                 </nav>
             </div>
 
-            <div className="bg-secondary p-4 sm:p-6 rounded-lg border border-border min-h-[60vh]">
+            <div className="bg-secondary p-4 sm:p-6 rounded-lg border border-border flex-1 overflow-y-auto">
                 {activeTab === 'reports' && <ReportsTab openDmForUser={openDmTabForUser} setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator} />}
-                {activeTab === 'ai_alerts' && <AIModAlertsTab openDmForUser={openDmTabForUser} setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator}/>}
+                {activeTab === 'ai_alerts' && <AIModAlertsTab openDmForUser={openDmTabForUser} setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator} setView={setView}/>}
                 {activeTab === 'tickets' && <TicketingSystemTab openDmForUser={openDmTabForUser} setSelectedCreator={setSelectedCreator} />}
                 {activeTab === 'dms' && <DirectMessagesTab preselectedUserContext={dmUserContext} setSelectedCreator={setSelectedCreator} />}
+                {activeTab === 'forum' && <ForumModerationTab setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator} />}
             </div>
         </div>
     );
@@ -176,7 +188,7 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ openDmForUser, setSelectedChara
     };
 
     return (
-        <div>
+        <div className="space-y-4">
             <TabFilter showResolved={showResolved} setShowResolved={setShowResolved}>
                 <input 
                     type="text"
@@ -265,20 +277,16 @@ interface AIModAlertsTabProps {
   openDmForUser: (user: User, sourceFolder: 'AI Alerts') => void;
   setSelectedCharacter: (character: Character) => void;
   setSelectedCreator: (user: User) => void;
+  setView: (view: AppView) => void;
 }
 
-const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelectedCharacter, setSelectedCreator }) => {
+const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelectedCharacter, setSelectedCreator, setView }) => {
     const auth = useContext(AuthContext);
     const { 
-        aiAlerts = [], 
-        findUserById, 
-        silenceUser, 
-        updateAIAlertStatus,
-        aiAlertFolders = [],
-        createAIAlertFolder,
-        moveAIAlertToFolder,
-        characters = [],
-        allUsers = [],
+        aiAlerts = [], findUserById, silenceUser, updateAIAlertStatus,
+        aiAlertFolders = [], createAIAlertFolder, moveAIAlertToFolder,
+        characters = [], allUsers, addNoteToAIAlert, updateAIAlertFeedback,
+        forumThreads = [], getPostsForThread
     } = auth || {};
 
     const [selectedAlert, setSelectedAlert] = useState<AIAlert | null>(null);
@@ -286,6 +294,7 @@ const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelec
     const [statusFilter, setStatusFilter] = useState<'pending' | 'resolved'>('pending');
     const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
     const [newFolderName, setNewFolderName] = useState('');
+    const [noteInput, setNoteInput] = useState('');
 
     useEffect(() => {
         if (selectedAlert) {
@@ -338,11 +347,13 @@ const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelec
     };
 
     const getEntityInfo = useCallback((alert: AIAlert | null) => {
-        if (!alert) return { character: null, user: null, comment: null };
+        if (!alert || !allUsers || !forumThreads || !getPostsForThread) return { character: null, user: null, comment: null, forumThread: null, forumPost: null };
         
         let character: Character | null = null;
         let user: User | null = null;
         let comment: Comment | null = null;
+        let forumThread: ForumThread | null = null;
+        let forumPost: ForumPost | null = null;
 
         if (alert.entityType === 'character') {
             character = characters.find(c => c.id === alert.entityId) || null;
@@ -359,15 +370,34 @@ const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelec
             if (!character) {
                 user = allUsers.find(u => u.profile.avatarUrl === alert.entityId) || null;
             }
+        } else if (alert.entityType === 'forumThread') {
+            forumThread = forumThreads.find(t => t.id === alert.entityId) || null;
+        } else if (alert.entityType === 'forumPost') {
+            for (const thread of forumThreads) {
+                const posts = getPostsForThread(thread.id);
+                const foundPost = posts.find(p => p.id === alert.entityId);
+                if (foundPost) {
+                    forumPost = foundPost;
+                    forumThread = thread;
+                    break;
+                }
+            }
         }
         
-        return { character, user, comment };
-    }, [characters, findUserById, allUsers]);
+        return { character, user, comment, forumThread, forumPost };
+    }, [characters, findUserById, allUsers, forumThreads, getPostsForThread]);
+
+    const handleAddNote = () => {
+        if (addNoteToAIAlert && selectedAlert && noteInput.trim()) {
+            addNoteToAIAlert(selectedAlert.id, noteInput.trim());
+            setNoteInput('');
+        }
+    };
 
     return (
-        <div className="flex h-[70vh]">
-            <div className="w-1/3 border-r border-border flex flex-col">
-                <div className="p-2 border-b border-border space-y-2">
+        <div className="flex h-[75vh]">
+            <div className="w-2/5 xl:w-1/3 border-r border-border flex flex-col">
+                <div className="p-2 border-b border-border space-y-2 flex-shrink-0">
                     <button onClick={() => setSelectedFolderId('all')} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === 'all' ? 'bg-hover' : ''}`}>All Alerts</button>
                     <button onClick={() => setSelectedFolderId('uncategorized')} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === 'uncategorized' ? 'bg-hover' : ''}`}>Uncategorized</button>
                     {aiAlertFolders?.map(folder => (
@@ -378,7 +408,7 @@ const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelec
                         <button onClick={handleCreateFolder} className="p-1 bg-tertiary hover:bg-hover rounded-md"><PlusIcon className="w-4 h-4" /></button>
                     </div>
                 </div>
-                <div className="flex items-center p-2 border-b border-border">
+                <div className="flex items-center p-2 border-b border-border flex-shrink-0">
                     <div className="flex items-center gap-1 p-1 bg-primary border border-border rounded-md flex-grow">
                         <button onClick={() => setStatusFilter('pending')} className={`flex-1 px-3 py-1 text-sm rounded ${statusFilter === 'pending' ? 'bg-accent-primary text-white' : 'hover:bg-hover'}`}>Pending</button>
                         <button onClick={() => setStatusFilter('resolved')} className={`flex-1 px-3 py-1 text-sm rounded ${statusFilter === 'resolved' ? 'bg-success/50 text-white' : 'hover:bg-hover'}`}>Resolved</button>
@@ -404,15 +434,20 @@ const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelec
                 </div>
             </div>
 
-            <div className="w-2/3 flex flex-col p-4">
+            <div className="w-3/5 xl:w-2/3 flex flex-col p-4">
                 {selectedAlert ? (
                     (() => {
                         const entityCreator = findUserById?.(selectedAlert.entityCreatorId || '');
-                        const { character, user } = getEntityInfo(selectedAlert);
+                        const { character, user, forumThread, forumPost } = getEntityInfo(selectedAlert);
 
                         const handleGoToContent = () => {
-                            if (character) setSelectedCharacter(character);
-                            else if (user) setSelectedCreator(user);
+                            if (forumThread) {
+                                setView({ type: 'FORUM_THREAD', threadId: forumThread.id });
+                            } else if (character) {
+                                setSelectedCharacter(character);
+                            } else if (user) {
+                                setSelectedCreator(user);
+                            }
                         };
 
                         return (
@@ -445,20 +480,46 @@ const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelec
                                             <p className="font-mono text-sm whitespace-pre-wrap p-2 bg-tertiary rounded">"{selectedAlert.flaggedText}"</p>
                                         </div>
                                     )}
+                                    {(selectedAlert.entityType === 'forumPost' && forumPost) && (
+                                        <div>
+                                            <h4 className="text-sm font-semibold text-text-secondary mb-1">Full Post Content:</h4>
+                                            <div className="text-sm p-2 bg-tertiary rounded border border-border">
+                                                <p className="whitespace-pre-wrap">{forumPost.content}</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {(selectedAlert.entityType === 'forumThread' && forumThread) && (
+                                        <div>
+                                            <h4 className="text-sm font-semibold text-text-secondary mb-1">Thread Title:</h4>
+                                            <div className="text-sm p-2 bg-tertiary rounded border border-border">
+                                                <p className="font-semibold">{forumThread.title}</p>
+                                            </div>
+                                        </div>
+                                    )}
                                     {selectedAlert.entityType === 'image' && (
                                          <div>
                                             <h4 className="text-sm font-semibold text-text-secondary mb-1">Flagged Image:</h4>
                                             <AlertImage imageId={selectedAlert.entityId} />
                                         </div>
                                     )}
-                                    {!selectedAlert.explanation && !selectedAlert.flaggedText && selectedAlert.entityType !== 'image' && (
-                                        <p className="text-sm text-text-secondary text-center py-4">No specific content was flagged for this alert. Review the content via "Go to Content".</p>
-                                    )}
                                 </div>
-                                
-                                <div className="space-y-4">
+
+                                <div className="mt-auto space-y-4">
+                                     <div className="border-t border-border pt-3">
+                                        <h4 className="text-sm font-semibold text-text-secondary mb-2">Admin Notes</h4>
+                                        {selectedAlert.notes && selectedAlert.notes.length > 0 ? (
+                                            <ul className="text-xs text-text-secondary space-y-1 mb-2 list-disc list-inside max-h-24 overflow-y-auto">
+                                                {selectedAlert.notes.map((note, i) => <li key={i}>{note}</li>)}
+                                            </ul>
+                                        ) : <p className="text-xs text-text-secondary mb-2 italic">No notes yet.</p>}
+                                        <div className="flex gap-2">
+                                            <input type="text" placeholder="Add a new note..." value={noteInput} onChange={(e) => setNoteInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddNote()} className="flex-grow bg-tertiary border border-border rounded-md py-1 px-2 text-sm" />
+                                            <button onClick={handleAddNote} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-sm">Add Note</button>
+                                        </div>
+                                    </div>
+                                    
                                     <div className="flex flex-wrap items-center gap-2">
-                                        <button onClick={handleGoToContent} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-sm" disabled={!character && !user}>Go to Content</button>
+                                        <button onClick={handleGoToContent} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-sm" disabled={!character && !user && !forumThread}>Go to Content</button>
                                         {entityCreator && <button onClick={() => openDmForUser(entityCreator, 'AI Alerts')} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-sm">Message User</button>}
                                         {entityCreator && <button onClick={() => silenceUser?.(entityCreator.id, true)} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-sm text-yellow-400">Silence User</button>}
                                     </div>
@@ -479,6 +540,15 @@ const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelec
                                                 {aiAlertFolders?.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                                             </select>
                                         </div>
+                                    </div>
+                                    <div className="border-t border-border pt-3 flex items-center justify-center gap-4">
+                                        <span className="text-sm text-text-secondary">Was this alert helpful?</span>
+                                        <button onClick={() => updateAIAlertFeedback?.(selectedAlert.id, 'good')} className={`p-2 rounded-full ${selectedAlert.feedback === 'good' ? 'bg-success/30 text-success' : 'bg-tertiary hover:bg-hover'}`}>
+                                            <ThumbsUpIcon className="w-5 h-5" />
+                                        </button>
+                                         <button onClick={() => updateAIAlertFeedback?.(selectedAlert.id, 'bad')} className={`p-2 rounded-full ${selectedAlert.feedback === 'bad' ? 'bg-danger/30 text-danger' : 'bg-tertiary hover:bg-hover'}`}>
+                                            <ThumbsDownIcon className="w-5 h-5" />
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -546,9 +616,9 @@ const TicketingSystemTab: React.FC<{ openDmForUser: (user: User, sourceFolder: '
     }, [tickets, selectedFolderId, sortOrder]);
 
     return (
-        <div className="flex h-[70vh]">
-            <div className="w-1/3 border-r border-border flex flex-col">
-                <div className="p-2 border-b border-border space-y-2">
+        <div className="flex h-[75vh]">
+            <div className="w-2/5 xl:w-1/3 border-r border-border flex flex-col">
+                <div className="p-2 border-b border-border space-y-2 flex-shrink-0">
                     <button onClick={() => setSelectedFolderId('all')} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === 'all' ? 'bg-hover' : ''}`}>All Tickets</button>
                     <button onClick={() => setSelectedFolderId('uncategorized')} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === 'uncategorized' ? 'bg-hover' : ''}`}>Uncategorized</button>
                     {ticketFolders?.map(folder => (
@@ -559,7 +629,7 @@ const TicketingSystemTab: React.FC<{ openDmForUser: (user: User, sourceFolder: '
                         <button onClick={handleCreateFolder} className="p-1 bg-tertiary hover:bg-hover rounded-md"><PlusIcon className="w-4 h-4" /></button>
                     </div>
                 </div>
-                <div className="flex items-center justify-between p-2 border-b border-border">
+                <div className="flex items-center justify-between p-2 border-b border-border flex-shrink-0">
                     <span className="text-xs text-text-secondary">Sort by:</span>
                     <select value={sortOrder} onChange={e => setSortOrder(e.target.value as any)} className="bg-primary border border-border text-xs rounded">
                         <option value="newest">Newest</option>
@@ -583,7 +653,7 @@ const TicketingSystemTab: React.FC<{ openDmForUser: (user: User, sourceFolder: '
                     })}
                 </div>
             </div>
-            <div className="w-2/3 flex flex-col p-4">
+            <div className="w-3/5 xl:w-2/3 flex flex-col p-4">
                 {selectedTicket ? (
                     (() => {
                         const submitter = findUserById?.(selectedTicket.submitterId);
@@ -604,7 +674,7 @@ const TicketingSystemTab: React.FC<{ openDmForUser: (user: User, sourceFolder: '
                                 <div className="flex-1 overflow-y-auto bg-primary p-3 rounded-md border border-border mb-4">
                                     <p className="whitespace-pre-wrap">{selectedTicket.description}</p>
                                 </div>
-                                <div className="flex items-center justify-between gap-4">
+                                <div className="flex items-center justify-between gap-4 mt-auto">
                                     <div className="flex items-center gap-4">
                                         <select value={selectedTicket.status} onChange={e => updateTicketStatus?.(selectedTicket.id, e.target.value as TicketStatus)} className="bg-tertiary border border-border rounded-md p-2">
                                             <option>New</option>
@@ -707,8 +777,6 @@ const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, source
     };
     
     const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-        // FIX: The type of items from `e.clipboardData.items` was inferred as `unknown`.
-        // We cast the array to `any[]` to allow access to `type` and `getAsFile` properties.
         const file = (Array.from(e.clipboardData.items) as any[]).find(item => item.type.startsWith('image/'))?.getAsFile();
         if (file) {
             e.preventDefault();
@@ -763,9 +831,9 @@ const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, source
     }, [dmConversations]);
 
     return (
-        <div className="flex h-[70vh]">
-            <div className="w-1/3 border-r border-border flex flex-col">
-                <div className="p-2 border-b border-border">
+        <div className="flex h-[75vh]">
+            <div className="w-2/5 xl:w-1/3 border-r border-border flex flex-col">
+                <div className="p-2 border-b border-border flex-shrink-0">
                     <input 
                         type="text" 
                         placeholder="Search users..."
@@ -774,7 +842,7 @@ const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, source
                         className="w-full bg-primary border border-border rounded-md py-1 px-2 text-sm"
                     />
                 </div>
-                <div className="p-2 border-b border-border space-y-2">
+                <div className="p-2 border-b border-border space-y-2 flex-shrink-0">
                     <button onClick={() => setSelectedFolderId('all')} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === 'all' ? 'bg-hover' : ''}`}>All Messages</button>
                     <button onClick={() => setSelectedFolderId('uncategorized')} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === 'uncategorized' ? 'bg-hover' : ''}`}>Uncategorized</button>
                     {dmFolders?.map(folder => (
@@ -785,7 +853,7 @@ const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, source
                         <button onClick={handleCreateFolder} className="p-1 bg-tertiary hover:bg-hover rounded-md"><PlusIcon className="w-4 h-4" /></button>
                     </div>
                 </div>
-                 <div className="p-2 border-b border-border flex justify-end">
+                 <div className="p-2 border-b border-border flex justify-end flex-shrink-0">
                     {hasUnread && (
                         <button 
                             onClick={() => markAllDMsAsReadByAdmin?.()}
@@ -816,10 +884,10 @@ const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, source
                     ))}
                 </div>
             </div>
-            <div className="w-2/3 flex flex-col">
+            <div className="w-3/5 xl:w-2/3 flex flex-col">
                 {selectedUser ? (
                     <>
-                        <div className="p-3 border-b border-border flex items-center justify-between gap-3">
+                        <div className="p-3 border-b border-border flex items-center justify-between gap-3 flex-shrink-0">
                             <button onClick={() => setSelectedCreator(selectedUser)} className="flex items-center gap-3 hover:opacity-80">
                                 <Avatar imageId={selectedUser.profile.avatarUrl} alt={selectedUser.profile.name} className="w-10 h-10 rounded-full object-cover" />
                                 <h3 className="font-bold">{selectedUser.profile.name}</h3>
@@ -850,7 +918,7 @@ const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, source
                            })}
                            <div ref={messagesEndRef} />
                         </div>
-                        <div className="p-3 border-t border-border bg-secondary">
+                        <div className="p-3 border-t border-border bg-secondary flex-shrink-0">
                              {imagePreview && <ImagePreview src={imagePreview} onRemove={() => { if(imagePreview) URL.revokeObjectURL(imagePreview); setImageFile(null); setImagePreview(null); }} />}
                             <div className="flex items-center gap-2">
                                 <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/jpeg" className="hidden" />

@@ -1,65 +1,21 @@
+
+
 import React, { useState, useEffect, useRef, useCallback, useContext, useMemo } from 'react';
-import { Character, ChatMessage, ChatSettings, LLMModel } from '../types';
-import { getChatResponse, getTextToSpeech, getChatResponseStream } from '../services/geminiService';
+import { Character, ChatMessage, ChatSettings, ApiConnection } from '../types';
+import { getChatResponseStream, getTextToSpeech, generateChatResponseWithStats } from '../services/aiService';
 import Message from './Message';
-import { SendIcon, SettingsIcon, MicrophoneIcon } from './Icons';
+import { SendIcon, SettingsIcon, SpinnerIcon } from './Icons';
 import { decode, decodeAudioData } from '../utils/audioUtils';
 import { AuthContext } from '../context/AuthContext';
 import Avatar from './Avatar';
 import ChatSettingsModal from './ChatSettingsModal';
-
-// FIX: Add type definitions for the experimental SpeechRecognition API to resolve TypeScript errors.
-interface SpeechRecognitionAlternative {
-  readonly transcript: string;
-  readonly confidence: number;
-}
-
-interface SpeechRecognitionResult {
-  readonly isFinal: boolean;
-  readonly length: number;
-  item(index: number): SpeechRecognitionAlternative;
-  [index: number]: SpeechRecognitionAlternative;
-}
-
-interface SpeechRecognitionResultList {
-  readonly length: number;
-  item(index: number): SpeechRecognitionResult;
-  [index: number]: SpeechRecognitionResult;
-}
-
-interface SpeechRecognitionEvent extends Event {
-  readonly resultIndex: number;
-  readonly results: SpeechRecognitionResultList;
-}
-
-interface SpeechRecognitionErrorEvent extends Event {
-  readonly error: string;
-  readonly message: string;
-}
-
-interface SpeechRecognition extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: (event: SpeechRecognitionEvent) => void;
-  onstart: () => void;
-  onend: () => void;
-  onerror: (event: SpeechRecognitionErrorEvent) => void;
-  start: () => void;
-  stop: () => void;
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition: { new (): SpeechRecognition };
-    webkitSpeechRecognition: { new (): SpeechRecognition };
-  }
-}
 
 interface ChatViewProps {
   character: Character;
   chatHistory: ChatMessage[];
   updateChatHistory: (characterId: string, history: ChatMessage[]) => void;
   onReportMessage: (message: ChatMessage) => void;
+  activeConnection: ApiConnection;
 }
 
 const SkeletonMessage: React.FC = () => (
@@ -75,25 +31,24 @@ const SkeletonMessage: React.FC = () => (
     </div>
 );
 
+const generateStatsString = (character: Character, stats: Record<string, number> | null): string => {
+    if (!character.statsVisible || !stats || !character.stats.length) {
+        return '';
+    }
+    return character.stats
+        .map(stat => `${stat.name}=${stats[stat.id] ?? stat.initialValue}`)
+        .join(', ');
+};
 
-const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatHistory, onReportMessage }) => {
+const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatHistory, onReportMessage, activeConnection }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   
   const [isTtsLoading, setIsTtsLoading] = useState<Set<string>>(new Set());
-  const [playedTtsMessages, setPlayedTtsMessages] = useState<Set<string>>(new Set());
   const [ttsAudioCache, setTtsAudioCache] = useState<Map<string, string>>(new Map());
-  const ttsFetchesInProgress = useRef<Set<string>>(new Set());
   const [currentlyPlayingTtsId, setCurrentlyPlayingTtsId] = useState<string | null>(null);
   const activeTtsSourceRef = useRef<AudioBufferSourceNode | null>(null);
-
-  const [isRecording, setIsRecording] = useState(false);
-  const speechRecognitionRef = useRef<SpeechRecognition | null>(null);
-  const handsFreeTriggeredSend = useRef(false);
-  const silenceTimerRef = useRef<number | null>(null);
-  const textToSendRef = useRef('');
-  const finalTranscriptRef = useRef('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const auth = useContext(AuthContext);
@@ -104,15 +59,14 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
         isStreaming: true,
         ttsVoice: 'Kore',
         kidMode: false,
-        autoRead: false,
     };
     if (!auth?.currentUser) return defaultSettings;
     const savedSettings = auth.chatSettings[auth.currentUser.id]?.[character.id] || {};
 
     const finalSettings = { ...defaultSettings, ...savedSettings };
     
-    if (auth.currentUser.userType === 'Free' && finalSettings.model === LLMModel.GEMINI_PRO) {
-        finalSettings.model = LLMModel.GEMINI_FLASH;
+    if (auth.currentUser.userType === 'Free' && finalSettings.model === 'gemini-2.5-pro') {
+        finalSettings.model = 'gemini-2.5-flash';
     }
 
     return finalSettings;
@@ -136,149 +90,112 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [displayedHistory]);
-
-  // FIX: Moved handleSend before the useEffect that calls it to prevent a "used before declaration" error.
-  const handleSend = useCallback(async (messageText?: string) => {
-    const textToSend = (messageText ?? input).trim();
+  
+  const handleSend = useCallback(async () => {
+    const textToSend = input.trim();
     if (!textToSend || isLoading || !auth?.currentUser || !auth.aiContextSettings) return;
 
-    const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      sender: 'user',
-      text: textToSend,
-      timestamp: Date.now(),
-    };
-
-    const initialHistory = chatHistory.length > 0 ? chatHistory : (character.greeting ? [{
-        id: crypto.randomUUID(),
-        sender: 'bot' as const,
-        text: character.greeting,
-        timestamp: Date.now() - 1
-    }] : []);
-    
-    const newHistory = [...initialHistory, userMessage];
-    updateChatHistory(character.id, newHistory);
-    setInput('');
     setIsLoading(true);
+    setInput('');
 
-    if (userChatSettings.isStreaming) {
-        const botMessage: ChatMessage = {
-            id: crypto.randomUUID(),
-            sender: 'bot',
-            text: '',
-            timestamp: Date.now(),
-        };
+    const userMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        sender: 'user',
+        text: textToSend,
+        timestamp: Date.now(),
+    };
+    
+    const newHistory = [...displayedHistory, userMessage];
+    updateChatHistory(character.id, newHistory);
+
+    const historyForApi = newHistory.filter(msg => msg.id !== 'greeting-0');
+
+    // If character has no stats, use the simple, streaming method to preserve UX.
+    if (!character.stats || character.stats.length === 0) {
+        const botMessage: ChatMessage = { id: crypto.randomUUID(), sender: 'bot', text: '', timestamp: Date.now() };
+        // Show a placeholder while waiting for the first chunk
         updateChatHistory(character.id, [...newHistory, botMessage]);
-        
+
         try {
-            const stream = getChatResponseStream(character, newHistory, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model);
+            const stream = getChatResponseStream(character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, null, activeConnection);
             let fullText = '';
             for await (const chunk of stream) {
                 fullText += chunk;
                 updateChatHistory(character.id, [...newHistory, { ...botMessage, text: fullText }]);
             }
         } catch (e) {
-            console.error(e);
-            updateChatHistory(character.id, [...newHistory, { ...botMessage, text: "Error streaming response." }]);
+            console.error("Error streaming response:", e);
+            updateChatHistory(character.id, [...newHistory, { ...botMessage, text: `Error streaming response: ${e instanceof Error ? e.message : String(e)}` }]);
         } finally {
             setIsLoading(false);
         }
-    } else {
-        const botResponseText = await getChatResponse(character, newHistory, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model);
-        const botMessage: ChatMessage = {
-          id: crypto.randomUUID(),
-          sender: 'bot',
-          text: botResponseText,
+        return;
+    }
+    
+    // --- Stat System Logic (New combined, non-streaming call to prevent rate limits) ---
+    try {
+        let statsForUpdate = auth.chatStats?.[auth.currentUser.id]?.[character.id];
+        if (!statsForUpdate) {
+            statsForUpdate = {};
+            character.stats.forEach(stat => {
+                statsForUpdate[stat.id] = stat.initialValue;
+            });
+        }
+
+        // Single API call to get response and stat changes
+        const { statChanges, responseText } = await generateChatResponseWithStats(
+            character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, statsForUpdate, activeConnection
+        );
+        
+        // Handle API errors gracefully
+        if (responseText.startsWith("Error:")) {
+            const errorMessage: ChatMessage = { id: crypto.randomUUID(), sender: 'bot', text: responseText, timestamp: Date.now() };
+            updateChatHistory(character.id, [...newHistory, errorMessage]);
+            setIsLoading(false);
+            return;
+        }
+
+        // Apply stat updates
+        let finalStats = { ...statsForUpdate };
+        if (statChanges && statChanges.length > 0) {
+          statChanges.forEach(update => {
+            const statInfo = character.stats.find(s => s.id === update.statId);
+            if (statInfo) {
+              let newValue = (finalStats[update.statId] ?? statInfo.initialValue) + update.valueChange;
+              newValue = Math.max(statInfo.min, Math.min(statInfo.max, newValue));
+              finalStats[update.statId] = newValue;
+            }
+          });
+        }
+        
+        auth.updateChatStats(character.id, finalStats);
+        const statsString = generateStatsString(character, finalStats);
+
+        const botMessage: ChatMessage = { 
+          id: crypto.randomUUID(), 
+          sender: 'bot', 
+          text: responseText, 
           timestamp: Date.now(),
+          statsSnapshot: statsString
         };
         updateChatHistory(character.id, [...newHistory, botMessage]);
+
+    } catch (error) {
+        console.error("Error during message sending with stats:", error);
+        const errorMessageText = `A critical error occurred while processing the response: ${error instanceof Error ? error.message : String(error)}`;
+        const errorMessage: ChatMessage = {
+             id: crypto.randomUUID(), 
+             sender: 'bot',
+             text: errorMessageText,
+             timestamp: Date.now()
+        };
+        updateChatHistory(character.id, [...newHistory, errorMessage]);
+    } finally {
         setIsLoading(false);
     }
-  }, [input, isLoading, auth, character, chatHistory, updateChatHistory, userChatSettings]);
 
-  useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn("Speech recognition not supported by this browser.");
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    recognition.onresult = (event) => {
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-
-      let interimTranscript = '';
-      // Start processing from the first new result returned by the API
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          // Append final results to our ref, ensuring a space separator
-          finalTranscriptRef.current += transcript + ' ';
-        } else {
-          // The rest of the results are interim
-          interimTranscript += transcript;
-        }
-      }
-      
-      const fullTranscript = finalTranscriptRef.current + interimTranscript;
-      setInput(fullTranscript);
-
-      if (userChatSettings.autoRead && event.results.length > 0 && event.results[event.results.length - 1].isFinal) {
-        silenceTimerRef.current = window.setTimeout(() => {
-          const transcriptToSend = fullTranscript.trim();
-          if (transcriptToSend) {
-            textToSendRef.current = transcriptToSend;
-            handsFreeTriggeredSend.current = true;
-            speechRecognitionRef.current?.stop();
-          }
-        }, 1500);
-      }
-    };
-
-    recognition.onstart = () => {
-      finalTranscriptRef.current = ''; // Reset transcript on new recording session
-      setIsRecording(true);
-    };
-
-    recognition.onend = () => {
-      setIsRecording(false);
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    };
-    
-    recognition.onerror = (event) => {
-        console.error('Speech recognition error', event.error);
-        if (isRecording) {
-            setIsRecording(false);
-        }
-    };
-
-    speechRecognitionRef.current = recognition;
-    
-    return () => {
-        if(speechRecognitionRef.current) {
-            speechRecognitionRef.current.stop();
-        }
-    };
-
-  }, [userChatSettings.autoRead]);
-
-  useEffect(() => {
-    if (!isRecording && handsFreeTriggeredSend.current) {
-      handsFreeTriggeredSend.current = false;
-      if (textToSendRef.current) {
-        handleSend(textToSendRef.current);
-        textToSendRef.current = '';
-      } else if (userChatSettings.autoRead) {
-        // If there was no input, just start listening again
-        setTimeout(() => speechRecognitionRef.current?.start(), 250);
-      }
-    }
-  }, [isRecording, handleSend, userChatSettings.autoRead]);
-
-
+  }, [input, isLoading, auth, character, updateChatHistory, userChatSettings, displayedHistory, activeConnection]);
+  
   const stopCurrentTts = useCallback(() => {
     if (activeTtsSourceRef.current) {
         activeTtsSourceRef.current.onended = null; 
@@ -295,10 +212,9 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
     };
   }, [stopCurrentTts]);
   
-  const playTTS = useCallback(async (text: string, messageId: string, onEnded?: () => void) => {
+  const playTTS = useCallback(async (text: string, messageId: string) => {
     if (activeTtsSourceRef.current && messageId === currentlyPlayingTtsId) {
         stopCurrentTts();
-        onEnded?.();
         return;
     }
     stopCurrentTts();
@@ -325,14 +241,12 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
                 activeTtsSourceRef.current = null;
                 setCurrentlyPlayingTtsId(null);
               }
-              onEnded?.();
             };
             source.start();
         } catch (error) {
             console.error("Failed to play decoded TTS audio:", error);
             activeTtsSourceRef.current = null;
             setCurrentlyPlayingTtsId(null);
-            onEnded?.();
         }
     };
 
@@ -344,16 +258,13 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
 
     setIsTtsLoading(prev => new Set(prev).add(messageId));
     try {
-        const base64Audio = await getTextToSpeech(text, userChatSettings.ttsVoice);
+        const base64Audio = await getTextToSpeech(text, userChatSettings.ttsVoice, activeConnection);
         if (base64Audio) {
             setTtsAudioCache(prevCache => new Map(prevCache).set(messageId, base64Audio));
             await playAudio(base64Audio);
-        } else {
-          onEnded?.();
         }
     } catch (error) {
         console.error("Failed to play TTS audio:", error);
-        onEnded?.();
     } finally {
         setIsTtsLoading(prev => {
             const next = new Set(prev);
@@ -361,41 +272,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
             return next;
         });
     }
-  }, [userChatSettings.ttsVoice, ttsAudioCache, currentlyPlayingTtsId, stopCurrentTts]);
-  
-  useEffect(() => {
-    const lastMessage = displayedHistory.length > 0 ? displayedHistory[displayedHistory.length - 1] : null;
-
-    if (!isLoading && lastMessage && lastMessage.sender === 'bot') {
-        if (userChatSettings.autoRead && !playedTtsMessages.has(lastMessage.id)) {
-            setPlayedTtsMessages(prev => new Set(prev).add(lastMessage.id));
-            playTTS(lastMessage.text, lastMessage.id, () => {
-                if (userChatSettings.autoRead && speechRecognitionRef.current && !isRecording) {
-                    setTimeout(() => {
-                      setInput(''); // Clear for new utterance
-                      speechRecognitionRef.current?.start()
-                    }, 250);
-                }
-            });
-        } else if (!userChatSettings.autoRead && !ttsAudioCache.has(lastMessage.id) && !ttsFetchesInProgress.current.has(lastMessage.id)) {
-            const fetchTts = async () => {
-                if (!lastMessage.text.trim()) return; 
-                ttsFetchesInProgress.current.add(lastMessage.id);
-                try {
-                    const base64Audio = await getTextToSpeech(lastMessage.text, userChatSettings.ttsVoice);
-                    if (base64Audio) {
-                        setTtsAudioCache(prevCache => new Map(prevCache).set(lastMessage.id, base64Audio));
-                    }
-                } catch (error) {
-                    console.error("Failed to pre-fetch TTS audio:", error);
-                } finally {
-                    ttsFetchesInProgress.current.delete(lastMessage.id);
-                }
-            };
-            fetchTts();
-        }
-    }
-  }, [displayedHistory, userChatSettings.autoRead, userChatSettings.ttsVoice, ttsAudioCache, isLoading, playTTS, playedTtsMessages, isRecording]);
+  }, [userChatSettings.ttsVoice, ttsAudioCache, currentlyPlayingTtsId, stopCurrentTts, activeConnection]);
   
   const handleUpdateMessage = (messageId: string, newText: string) => {
     const updatedHistory = chatHistory.map(msg => 
@@ -420,69 +297,117 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   const handleRetry = useCallback(async (messageId: string) => {
     if (isLoading || !auth?.currentUser || !auth.aiContextSettings) return;
 
-    if (chatHistory.length === 0) return;
-    const lastMessage = chatHistory[chatHistory.length - 1];
-    if (lastMessage.id !== messageId || lastMessage.sender !== 'bot') {
-        console.warn("Retry can only be performed on the last bot message.");
+    const messageIndex = displayedHistory.findIndex(msg => msg.id === messageId);
+    if (messageIndex === -1 || displayedHistory[messageIndex].sender !== 'bot') {
+        console.warn("Retry can only be performed on bot messages.");
         return;
     }
 
-    const historyForRetry = chatHistory.slice(0, -1);
-    
+    // History up to the point before the bot message we want to regenerate.
+    const historyForRetry = displayedHistory.slice(0, messageIndex);
+
+    const lastMessage = historyForRetry[historyForRetry.length - 1];
+    if (lastMessage?.sender !== 'user') {
+        console.warn("Cannot retry, the preceding message is not from the user.");
+        return;
+    }
+
     setIsLoading(true);
 
+    // Clean up TTS cache for the message being replaced and any after it.
+    const idsToDelete = displayedHistory.slice(messageIndex).map(msg => msg.id);
     setTtsAudioCache(prevCache => {
         const newCache = new Map(prevCache);
-        newCache.delete(messageId);
+        idsToDelete.forEach(id => newCache.delete(id));
         return newCache;
     });
+    
+    // Update UI to show only the history up to the point of retry.
+    updateChatHistory(character.id, historyForRetry);
+    
+    // Replicate the logic from handleSend but using the constructed history.
+    const historyForApi = historyForRetry.filter(msg => msg.id !== 'greeting-0');
 
-    setPlayedTtsMessages(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(messageId);
-        return newSet;
-    });
+    // Streaming path (no stats)
+    if (!character.stats || character.stats.length === 0) {
+        const botMessage: ChatMessage = { id: crypto.randomUUID(), sender: 'bot', text: '', timestamp: Date.now() };
+        updateChatHistory(character.id, [...historyForRetry, botMessage]); // Show placeholder
 
-    if (userChatSettings.isStreaming) {
-        const botMessageToUpdate = lastMessage;
-        
-        updateChatHistory(character.id, [...historyForRetry, { ...botMessageToUpdate, text: '' }]);
-        
         try {
-            const stream = getChatResponseStream(character, historyForRetry, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model);
+            const stream = getChatResponseStream(character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, null, activeConnection);
             let fullText = '';
             for await (const chunk of stream) {
                 fullText += chunk;
-                updateChatHistory(character.id, [...historyForRetry, { ...botMessageToUpdate, text: fullText }]);
+                updateChatHistory(character.id, [...historyForRetry, { ...botMessage, text: fullText }]);
             }
         } catch (e) {
-            console.error(e);
-            updateChatHistory(character.id, [...historyForRetry, { ...botMessageToUpdate, text: "Error regenerating response." }]);
+            console.error("Error streaming response during retry:", e);
+            updateChatHistory(character.id, [...historyForRetry, { ...botMessage, text: `Error streaming response: ${e instanceof Error ? e.message : String(e)}` }]);
         } finally {
             setIsLoading(false);
         }
-    } else {
-        const botResponseText = await getChatResponse(character, historyForRetry, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model);
-        const newBotMessage: ChatMessage = {
-            ...lastMessage,
-            text: botResponseText,
-            timestamp: Date.now(),
+        return;
+    }
+
+    // Non-streaming path (with stats)
+    try {
+        let statsForUpdate = auth.chatStats?.[auth.currentUser.id]?.[character.id];
+        if (!statsForUpdate) {
+            statsForUpdate = {};
+            character.stats.forEach(stat => {
+                statsForUpdate[stat.id] = stat.initialValue;
+            });
+        }
+
+        const { statChanges, responseText } = await generateChatResponseWithStats(
+            character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, statsForUpdate, activeConnection
+        );
+
+        if (responseText.startsWith("Error:")) {
+            const errorMessage: ChatMessage = { id: crypto.randomUUID(), sender: 'bot', text: responseText, timestamp: Date.now() };
+            updateChatHistory(character.id, [...historyForRetry, errorMessage]);
+            setIsLoading(false);
+            return;
+        }
+
+        let finalStats = { ...statsForUpdate };
+        if (statChanges && statChanges.length > 0) {
+          statChanges.forEach(update => {
+            const statInfo = character.stats.find(s => s.id === update.statId);
+            if (statInfo) {
+              let newValue = (finalStats[update.statId] ?? statInfo.initialValue) + update.valueChange;
+              newValue = Math.max(statInfo.min, Math.min(statInfo.max, newValue));
+              finalStats[update.statId] = newValue;
+            }
+          });
+        }
+        
+        auth.updateChatStats(character.id, finalStats);
+        const statsString = generateStatsString(character, finalStats);
+
+        const botMessage: ChatMessage = { 
+          id: crypto.randomUUID(), 
+          sender: 'bot', 
+          text: responseText, 
+          timestamp: Date.now(),
+          statsSnapshot: statsString
         };
-        updateChatHistory(character.id, [...historyForRetry, newBotMessage]);
+        updateChatHistory(character.id, [...historyForRetry, botMessage]);
+
+    } catch (error) {
+        console.error("Error during message retry with stats:", error);
+        const errorMessageText = `A critical error occurred while processing the response: ${error instanceof Error ? error.message : String(error)}`;
+        const errorMessage: ChatMessage = {
+             id: crypto.randomUUID(), 
+             sender: 'bot',
+             text: errorMessageText,
+             timestamp: Date.now()
+        };
+        updateChatHistory(character.id, [...historyForRetry, errorMessage]);
+    } finally {
         setIsLoading(false);
     }
-  }, [chatHistory, isLoading, auth, character, updateChatHistory, userChatSettings]);
-
-  const toggleRecording = () => {
-    if (!speechRecognitionRef.current) return;
-    
-    if (isRecording) {
-        speechRecognitionRef.current.stop();
-    } else {
-        setInput(''); // Clear input for manual recording
-        speechRecognitionRef.current.start();
-    }
-  };
+  }, [isLoading, auth, character, updateChatHistory, userChatSettings, displayedHistory, activeConnection]);
 
   const handleSaveSettings = (settings: ChatSettings) => {
     auth?.updateChatSettings(character.id, settings);
@@ -501,10 +426,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
-        {displayedHistory.map((msg, index) => {
-          const isLastMessage = index === displayedHistory.length - 1;
-          const isLastBotMessage = isLastMessage && msg.sender === 'bot' && !isLoading;
-          return (
+        {displayedHistory.map((msg) => (
             <Message 
               key={msg.id} 
               message={msg} 
@@ -518,11 +440,10 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
               onReport={() => onReportMessage(msg)}
               isTtsLoading={isTtsLoading.has(msg.id)}
               isTtsPlaying={currentlyPlayingTtsId === msg.id}
-              isLastBotMessage={isLastBotMessage}
             />
-          );
-        })}
-        {isLoading && !userChatSettings.isStreaming && (
+          )
+        )}
+        {isLoading && (
             <SkeletonMessage />
         )}
         <div ref={messagesEndRef} />
@@ -542,27 +463,18 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
                 placeholder={auth?.currentUser ? `Message ${character.name}...` : 'Please log in to chat'}
                 className="flex-1 bg-transparent focus:outline-none resize-none px-2 text-text-primary max-h-32"
                 rows={1}
-                disabled={isLoading || !auth?.currentUser || isRecording}
+                disabled={isLoading || !auth?.currentUser}
             />
-            <div className="flex items-center gap-3 border-l border-border pl-3">
-                <div className="flex flex-col items-center">
-                    <div className="relative cursor-pointer" onClick={() => auth?.updateChatSettings(character.id, { autoRead: !userChatSettings.autoRead })}>
-                        <input type="checkbox" id="hands-free-toggle" checked={userChatSettings.autoRead} readOnly className="sr-only" />
-                        <div className={`block w-10 h-5 rounded-full ${userChatSettings.autoRead ? 'bg-accent-secondary' : 'bg-tertiary'}`}></div>
-                        <div className={`dot absolute left-1 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${userChatSettings.autoRead ? 'transform translate-x-5' : ''}`}></div>
-                    </div>
-                    <label htmlFor="hands-free-toggle" className="text-xs text-text-secondary cursor-pointer mt-1">Hands-Free</label>
+             {isLoading ? <SpinnerIcon className="w-5 h-5 text-text-secondary animate-spin mx-3.5"/> : (
+                <div className="flex items-center gap-3 border-l border-border pl-3">
+                    <button onClick={() => setSettingsOpen(true)} disabled={!auth?.currentUser} className="p-2 rounded-full text-text-secondary hover:text-text-primary disabled:text-hover transition-colors">
+                        <SettingsIcon className="w-5 h-5" />
+                    </button>
+                    <button onClick={handleSend} disabled={isLoading || !input.trim() || !auth?.currentUser} className="p-2 rounded-full bg-accent-secondary disabled:bg-tertiary hover:bg-accent-secondary-hover transition-colors">
+                        <SendIcon className="w-5 h-5 text-white" />
+                    </button>
                 </div>
-                <button onClick={toggleRecording} disabled={!auth?.currentUser || userChatSettings.autoRead} className={`p-2 rounded-full text-text-secondary hover:text-text-primary disabled:text-hover disabled:cursor-not-allowed transition-colors ${isRecording ? 'bg-red-500/50 text-white animate-pulse' : ''}`}>
-                    <MicrophoneIcon className="w-5 h-5" />
-                </button>
-                <button onClick={() => setSettingsOpen(true)} disabled={!auth?.currentUser} className="p-2 rounded-full text-text-secondary hover:text-text-primary disabled:text-hover transition-colors">
-                    <SettingsIcon className="w-5 h-5" />
-                </button>
-                <button onClick={() => handleSend()} disabled={isLoading || !input.trim() || !auth?.currentUser} className="p-2 rounded-full bg-accent-secondary disabled:bg-tertiary hover:bg-accent-secondary-hover transition-colors">
-                    <SendIcon className="w-5 h-5 text-white" />
-                </button>
-            </div>
+             )}
         </div>
       </div>
       {isSettingsOpen && auth?.currentUser && (
@@ -578,6 +490,8 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
                 setSettingsOpen(false);
             }}
             userType={auth.currentUser.userType}
+            // FIX: Pass activeConnection to the modal for API calls
+            activeConnection={activeConnection}
         />
        )}
     </div>

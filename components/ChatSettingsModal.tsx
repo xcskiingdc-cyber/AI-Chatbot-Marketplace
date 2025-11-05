@@ -1,9 +1,11 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
-import { ChatSettings, LLMModel, TTSVoices, TTSVoiceName, UserType } from '../types';
+// FIX: Add ApiConnection to types and correct import path for getTextToSpeech
+import { ChatSettings, TTSVoices, TTSVoiceName, UserType, ApiConnection } from '../types';
 import { CloseIcon, RefreshIcon, PlayIcon, SpinnerIcon, StopIcon } from './Icons';
 import ConfirmationModal from './ConfirmationModal';
-import { getTextToSpeech } from '../services/geminiService';
+import { getTextToSpeech } from '../services/aiService';
 import { decode, decodeAudioData } from '../utils/audioUtils';
 
 interface ChatSettingsModalProps {
@@ -13,9 +15,11 @@ interface ChatSettingsModalProps {
   onSave: (settings: ChatSettings) => void;
   onResetChat: () => void;
   userType: UserType;
+  // FIX: Add activeConnection to props to be used for API calls
+  activeConnection: ApiConnection;
 }
 
-const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, settings, onSave, onResetChat, userType }) => {
+const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, settings, onSave, onResetChat, userType, activeConnection }) => {
   const [currentSettings, setCurrentSettings] = useState<ChatSettings>(settings);
   const [isResetModalOpen, setResetModalOpen] = useState(false);
   
@@ -70,7 +74,8 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
     
     setIsTestLoading(voice);
     try {
-        const base64Audio = await getTextToSpeech("Hello, this is a test of my voice.", voice);
+        // FIX: Pass activeConnection to the API service function.
+        const base64Audio = await getTextToSpeech("Hello, this is a test of my voice.", voice, activeConnection);
         if (base64Audio) {
             if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
                 audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -105,6 +110,7 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
   const labelClasses = "block text-sm font-medium text-text-secondary mb-1";
   
   const canUsePro = userType !== 'Free';
+  const availableModels = activeConnection.models || [];
 
   return (
     <>
@@ -148,12 +154,17 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
                 id="model" 
                 name="model" 
                 value={currentSettings.model} 
-                onChange={(e) => handleSettingChange('model', e.target.value as LLMModel)} 
+                onChange={(e) => handleSettingChange('model', e.target.value)} 
                 className={formFieldClasses}>
-                <option value={LLMModel.GEMINI_FLASH}>Gemini 2.5 Flash</option>
-                <option value={LLMModel.GEMINI_PRO} disabled={!canUsePro}>
-                    Gemini 2.5 Pro { !canUsePro && '(Subscription required)' }
-                </option>
+                {availableModels.map(modelName => {
+                    const isProModel = modelName.toLowerCase().includes('pro');
+                    const isDisabled = isProModel && !canUsePro;
+                    return (
+                        <option key={modelName} value={modelName} disabled={isDisabled}>
+                            {modelName} {isDisabled && '(Subscription required)'}
+                        </option>
+                    );
+                })}
               </select>
                {!canUsePro && <p className="text-xs text-text-secondary mt-1">Upgrade to a Subscription or Ad-supported plan to use Pro models.</p>}
             </div>
