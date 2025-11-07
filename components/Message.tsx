@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import type { ChatMessage, Character, User } from '../types';
 import { EditIcon, DeleteIcon, SaveIcon, CancelIcon, SoundOnIcon, RewindIcon, SpinnerIcon, StopIcon, ClipboardIcon, RefreshIcon, FlagIcon } from './Icons';
 import Avatar from './Avatar';
@@ -17,24 +17,23 @@ interface MessageProps {
   isTtsPlaying: boolean;
 }
 
-const formatMessageText = (text: string): React.ReactNode => {
-    const parts = text.split(/(\*\*.*?\*\*|\*.*?\*)/g);
-    return parts.map((part, index) => {
-        if (part.startsWith('**') && part.endsWith('**')) {
-            return <strong key={index}>{part.slice(2, -2)}</strong>;
-        }
-        if (part.startsWith('*') && part.endsWith('*')) {
-            return <em key={index}>{part.slice(1, -1)}</em>;
-        }
-        return part;
-    });
-};
-
-
 const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, onDelete, onPlayTTS, onRewind, onRetry, onReport, isTtsLoading, isTtsPlaying }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(message.text);
   const [isCopied, setIsCopied] = useState(false);
+
+  const formattedText = useMemo(() => {
+    if (!message.text) return [];
+    // Split by the markdown for italics (*...*), capturing the delimiter.
+    return message.text.split(/(\*.*?\*)/g).map((segment, index) => {
+        if (segment.startsWith('*') && segment.endsWith('*')) {
+            // This is an action/narration part. Render it as italics.
+            return <em key={index}>{segment.substring(1, segment.length - 1)}</em>;
+        }
+        // This is a regular text part (e.g., dialogue).
+        return <span key={index}>{segment}</span>;
+    });
+  }, [message.text]);
 
   const handleSave = () => {
     if (editText.trim()) {
@@ -105,7 +104,9 @@ const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, o
                       </div>
                   </div>
               ) : (
-                  <div className={`whitespace-pre-wrap mt-1 ${isBot ? 'text-text-primary' : 'text-white'}`}>{formatMessageText(message.text)}</div>
+                  <div className={`whitespace-pre-wrap mt-1 ${isBot ? 'text-text-primary' : 'text-white'}`}>
+                    {formattedText}
+                  </div>
               )}
           </div>
       </div>

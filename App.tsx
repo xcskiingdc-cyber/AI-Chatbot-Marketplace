@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useMemo, useContext, useEffect } from 'react';
 import useLocalStorage from './hooks/useLocalStorage';
 import type { Character, ChatMessage, AppView, UserProfile, User, Report, Ticket } from './types';
@@ -86,7 +87,7 @@ const MainApp: React.FC = () => {
     }
   }, [view]);
 
-  const handleSaveCharacter = (characterData: Omit<Character, 'creatorId'> & { creatorId?: string }, avatarFile: File | null) => {
+  const handleSaveCharacter = async (characterData: Omit<Character, 'creatorId'> & { creatorId?: string }, avatarFile: File | null) => {
     if (!currentUser) {
         setLoginModalOpen(true);
         return;
@@ -95,7 +96,7 @@ const MainApp: React.FC = () => {
         ...characterData,
         creatorId: characterData.creatorId || currentUser.id,
     };
-    saveCharacter(character, avatarFile);
+    await saveCharacter(character, avatarFile);
     setView({ type: 'PROFILE' });
   };
   

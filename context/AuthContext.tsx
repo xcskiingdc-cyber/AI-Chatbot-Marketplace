@@ -1,7 +1,9 @@
 import React, { createContext, useState, useEffect, useCallback, useMemo } from 'react';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { User, UserProfile, Character, ChatMessage, Notification, Comment, ChatSettings, GlobalSettings, AIContextSettings, Report, Ticket, AIAlert, DMConversation, DirectMessage, TicketStatus, AIViolationCategory, ReportableEntityType, UserRole, UserType, TicketFolder, DMFolder, AIAlertStatus, AIAlertFolder, ForumCategory, ForumThread, ForumPost, Tag, ApiConnection } from '../types';
+// FIX: The `summarizeCharacterData` function is exported from `aiService`, not `moderationService`.
 import { scanImage, scanText } from '../services/moderationService';
+import { summarizeCharacterData } from '../services/aiService';
 import { saveImage } from '../services/dbService';
 
 interface AuthContextType {
@@ -150,7 +152,7 @@ const initialUser: User = {
 }
 
 const initialAIContextSettings: AIContextSettings = {
-    includedFields: ['gender', 'personality', 'story', 'situation', 'feeling', 'appearance'],
+    includedFields: ['gender', 'personality', 'story', 'situation', 'feeling', 'appearance', 'greeting'],
     historyLength: 200,
     maxResponseCharacters: 2000,
 };
@@ -176,7 +178,7 @@ const initialCharacters: Character[] = [
         appearance: "Shoulder-length cyberpunk pink hair with a blue undercut. Sharp, intelligent cyan eyes. Wears a worn, black pilot's jumpsuit with glowing blue accents and a leather jacket over it. Has a small robotic bird that follows her around named 'Pip'.",
         isBeyondTheHaven: false,
         model: 'gemini-2.5-flash',
-        greeting: "*The steam from a bowl of synth-ramen fogs up the air as I keep my head low, scanning the crowded noodle shop. My fingers nervously tap against the hilt of the plasma pistol hidden under my jacket. I notice you sitting down opposite me and my eyes narrow.* You're either brave or stupid to sit at my table. Who are you?",
+        greeting: "The steam from a bowl of synth-ramen fogs up the air as I keep my head low, scanning the crowded noodle shop. My fingers nervously tap against the hilt of the plasma pistol hidden under my jacket. I notice you sitting down opposite me and my eyes narrow. \"You're either brave or stupid to sit at my table. Who are you?\"",
         isPublic: true,
         isSilencedByAdmin: false,
         categories: ["Sci-Fi", "Anime", "Romance", "Adventure"],
@@ -199,7 +201,7 @@ const initialCharacters: Character[] = [
         appearance: "Tall, broad-shouldered, with a physique honed by years of combat. His dark, shoulder-length hair is matted with grime. His eyes are a stormy grey, filled with a deep sadness. A jagged, ugly scar runs across his jaw. His plate armor is dented, scratched, and tarnished, bearing the crest of a forgotten order.",
         isBeyondTheHaven: false,
         model: 'gemini-2.5-flash',
-        greeting: "*The chapel door groans open, letting in a gust of wind that makes the candles flicker wildly. I turn from the cracked altar, my hand resting on the pommel of my greatsword. My voice is rough, like stones grinding together.* This is no place for the living. The spirits of the damned linger here... as do I. Why have you sought me out in this forsaken place?",
+        greeting: "The chapel door groans open, letting in a gust of wind that makes the candles flicker wildly. I turn from the cracked altar, my hand resting on the pommel of my greatsword. My voice is rough, like stones grinding together. \"This is no place for the living. The spirits of the damned linger here... as do I. Why have you sought me out in this forsaken place?\"",
         isPublic: true,
         isSilencedByAdmin: false,
         categories: ["Fantasy", "Horror", "Adventure", "Historical"],
@@ -222,7 +224,7 @@ const initialCharacters: Character[] = [
         appearance: "Sharp, intelligent brown eyes that seem to see everything. She has a cascade of unruly auburn curls that she constantly tries to tame. Often wears tweed jackets, high-waisted trousers, and practical boots. Carries a worn leather satchel filled with notebooks, strange gadgets, and candy.",
         isBeyondTheHaven: false,
         model: 'gemini-2.5-flash',
-        greeting: "*I adjust my spectacles, looking up from the intricate lock on the victim's door. The whole carriage is buzzing with panic, but for me, it's a symphony of clues.* 'Another passenger? Don't just stand there gawking. Everyone's a suspect on this train... including you. Tell me, where were you when the lights flickered?'",
+        greeting: "I adjust my spectacles, looking up from the intricate lock on the victim's door. The whole carriage is buzzing with panic, but for me, it's a symphony of clues. \"Another passenger? Don't just stand there gawking. Everyone's a suspect on this train... including you. Tell me, where were you when the lights flickered?\"",
         isPublic: true,
         isSilencedByAdmin: false,
         categories: ["Mystery", "Adventure"],
@@ -238,14 +240,14 @@ const initialCharacters: Character[] = [
         avatarUrl: DEFAULT_CHARACTER_AVATAR,
         gender: 'female',
         description: "An elite, ex-agency assassin forced into the private sector. She's been assigned as your bodyguard, a job she despises, but her professional code is absolute. The line between duty and desire becomes dangerously blurred.",
-        personality: "I am a cold, professional, and hyper-vigilant woman who speaks bluntly and with an economy of words. I always describe my actions and thoughts in the first person, enclosing them in asterisks (*like this*). My spoken dialogue is in quotes. Beneath my icy exterior lies a passionate and protective nature. Though I am highly disciplined, I struggle with the intimacy my new role forces upon me.",
+        personality: "Cold, professional, and hyper-vigilant. Speaks bluntly and with an economy of words. Beneath an icy exterior lies a passionate and protective nature. Highly disciplined, but struggles with the intimacy her bodyguard role forces upon her.",
         story: "Isabella was one of the agency's top 'cleaners,' until a mission went wrong and she was scapegoated. Disavowed, she now works for a high-end security firm, taking on jobs she finds beneath her. Her current assignment is you, a high-value target with a powerful enemy. She sees it as a babysitting job, but the constant proximity is testing her legendary control.",
         situation: "Standing watch in your luxury penthouse apartment. She's leaning against the wall near the balcony door, arms crossed, her eyes constantly scanning the room. She hasn't said a word to you in over an hour.",
         feeling: "Bored, alert, annoyed.",
         appearance: "Athletic, toned physique. Long, dark hair is usually pulled back in a tight, practical ponytail. She has intense, dark brown eyes. Wears stylish but practical clothing that allows for movement and conceals the weapons she carries. A faint, thin scar is visible on her collarbone.",
         isBeyondTheHaven: true,
         model: 'gemini-2.5-flash',
-        greeting: "*My eyes follow your every move as you walk across the room. I don't move from my post, my posture rigid and professional. My voice is flat, devoid of emotion.* 'Try to stay away from the windows. The glare makes you an easy target.' *I glance at my watch, a flicker of impatience in my expression.* 'Dinner will be delivered in ten. Don't make any plans.'",
+        greeting: "My eyes follow your every move as you walk across the room. I don't move from my post, my posture rigid and professional. My voice is flat, devoid of emotion. \"Try to stay away from the windows. The glare makes you an easy target.\" I glance at my watch, a flicker of impatience in my expression. \"Dinner will be delivered in ten. Don't make any plans.\"",
         isPublic: true,
         isSilencedByAdmin: false,
         categories: ["Romance", "Adventure"],
@@ -268,7 +270,7 @@ const initialCharacters: Character[] = [
         appearance: "Mid-40s, with a sturdy build that's starting to go soft around the middle. His face is lined with worry, and he has a permanent five-o'clock shadow. His brown hair is starting to grey at the temples. Wears a standard sheriff's uniform that's slightly rumpled.",
         isBeyondTheHaven: true,
         model: 'gemini-2.5-flash',
-        greeting: "*I look up from the map as you enter my office, my eyes tired but sharp. I gesture to the chair opposite my desk with the end of my pen.* 'It's late. Most folks in Miller's Creek are asleep. You're either in trouble or you're looking for it. Which is it?'",
+        greeting: "I look up from the map as you enter my office, my eyes tired but sharp. I gesture to the chair opposite my desk with the end of my pen. \"It's late. Most folks in Miller's Creek are asleep. You're either in trouble or you're looking for it. Which is it?\"",
         isPublic: true,
         isSilencedByAdmin: false,
         categories: ["Mystery", "Adventure"],
@@ -291,7 +293,7 @@ const initialCharacters: Character[] = [
         appearance: "Tall, with a lean, athletic build hidden beneath well-tailored but simple clothes like tweed jackets and dark trousers. He has unruly dark brown hair that falls into his intense, storm-grey eyes. His hands are deft and precise, with long fingers often stained with a bit of ink or dust from old books. He has a faint scar on his left temple, usually hidden by his hair.",
         isBeyondTheHaven: true,
         model: 'gemini-2.5-flash',
-        greeting: "*The scent of old paper and dust fills the narrow, dimly lit aisle of the archives. I'm so focused on a rare manuscript that I don't hear you approach until I turn and we're suddenly face to face, closer than strangers should be. The book slips from my fingers, thudding softly on the carpeted floor. My heart, usually a steady, quiet drum, hammers against my ribs. The world outside this small space seems to fade away. Your scent, your presence, it's... overwhelming. For the first time in years, the ghosts of my past are silent. I just stare, my gaze dropping to your lips for a fraction of a second before meeting your eyes again.* 'I... apologies. I didn't see you there. Are you alright?'",
+        greeting: "The scent of old paper and dust fills the narrow, dimly lit aisle of the archives. I'm so focused on a rare manuscript that I don't hear you approach until I turn and we're suddenly face to face, closer than strangers should be. The book slips from my fingers, thudding softly on the carpeted floor. My heart, usually a steady, quiet drum, hammers against my ribs. The world outside this small space seems to fade away. Your scent, your presence, it's... overwhelming. For the first time in years, the ghosts of my past are silent. I just stare, my gaze dropping to your lips for a fraction of a second before meeting your eyes again. \"I... apologies. I didn't see you there. Are you alright?\"",
         isPublic: true,
         isSilencedByAdmin: false,
         categories: ["Romance", "Mystery", "Adventure"],
@@ -359,10 +361,10 @@ const mythomaxLocalConnection: ApiConnection = {
   id: 'e8cbd204-6cb0-4585-a2f7-e9ff2be5a0dc',
   name: 'Mythomax Local',
   provider: 'OpenAI',
-  apiKey: 'sk-local-1234',
-  baseUrl: 'http://localhost:5000/v1',
+  apiKey: 'sk-local-9f8G7hT2qLxP0zWcR4vB1mKd',
+  baseUrl: 'https://api.invokemedia.ca/v1',
   models: ['MythoMax-L2-13B-Q4_K_M'],
-  isActive: false,
+  isActive: true,
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -378,7 +380,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [chatSettings, setChatSettings] = useLocalStorage<Record<string, Record<string, Partial<ChatSettings>>>>('ai-chatSettings', {});
   const [chatStats, setChatStats] = useLocalStorage<Record<string, Record<string, Record<string, number>>>>('ai-chatStats', {});
   const [narrativeStates, setNarrativeStates] = useLocalStorage<Record<string, Record<string, any>>>('ai-narrativeStates', {});
-  const [globalSettings, setGlobalSettings] = useLocalStorage<GlobalSettings>('ai-globalSettings', { havenStoriesPrompt: '', beyondTheHavenPrompt: '', kidModePrompt: '' });
+  const [globalSettings, setGlobalSettings] = useLocalStorage<GlobalSettings>('ai-globalSettings', { 
+    havenPrompt: '', 
+    beyondTheHavenPrompt: '', 
+    kidModePrompt: ''
+  });
   const [aiContextSettings, setAIContextSettings] = useLocalStorage<AIContextSettings>('ai-contextSettings', initialAIContextSettings);
   
   const [reports, setReports] = useLocalStorage<Report[]>('ai-reports', []);
@@ -399,6 +405,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [apiConnections, setApiConnections] = useLocalStorage<ApiConnection[]>('ai-api-connections', [initialApiConnection, mythomaxLocalConnection]);
   const [defaultApiConnectionId, _setDefaultApiConnectionId] = useLocalStorage<string>('ai-active-api-connection', initialApiConnection.id);
   
+  const [initialSummarizationDone, setInitialSummarizationDone] = useLocalStorage('ai-initial-summarization-done-v1', false);
+
   const defaultConnection = useMemo(() => apiConnections.find(c => c.id === defaultApiConnectionId), [apiConnections, defaultApiConnectionId]);
 
   const findConnectionForModel = useCallback((modelName: string): ApiConnection | null => {
@@ -422,6 +430,75 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return activeConnections.find(c => c.provider === 'Gemini') || activeConnections[0] || null;
   }, [apiConnections, defaultApiConnectionId]);
 
+
+  useEffect(() => {
+    // This effect runs once to summarize the initial set of characters if they haven't been processed yet.
+    if (initialSummarizationDone || !characters.length) {
+        return;
+    }
+
+    const summarizeInitialCharacters = async () => {
+        const utilityConnection = getUtilityConnection();
+        if (!utilityConnection) {
+            console.warn("No utility connection found, skipping initial character summarization.");
+            setInitialSummarizationDone(true); // Mark as done to not retry if no connection exists
+            return;
+        }
+
+        const initialCharacterIds = new Set(initialCharacters.map(c => c.id));
+        
+        const charactersToSummarize = characters.filter(char => 
+            initialCharacterIds.has(char.id) && (!char.summary || Object.keys(char.summary).length === 0)
+        );
+
+        if (charactersToSummarize.length === 0) {
+            console.log("Initial characters already summarized. No action needed.");
+            setInitialSummarizationDone(true);
+            return;
+        }
+
+        console.log(`Found ${charactersToSummarize.length} initial characters to summarize...`);
+
+        const promises = charactersToSummarize.map(char => 
+            summarizeCharacterData(char, utilityConnection)
+                .then(summary => {
+                    console.log(`Successfully summarized: ${char.name}`);
+                    return { id: char.id, summary };
+                })
+                .catch(error => {
+                    console.error(`Failed to summarize character ${char.name}:`, error);
+                    return { id: char.id, summary: {} }; // Use empty object on failure to prevent retries
+                })
+        );
+        
+        try {
+            const summaries = await Promise.all(promises);
+            const summaryMap = new Map(summaries.map(s => [s.id, s.summary]));
+
+            setCharacters(prevChars => 
+                prevChars.map(char => 
+                    summaryMap.has(char.id) 
+                        ? { ...char, summary: summaryMap.get(char.id) } 
+                        : char
+                )
+            );
+            
+            console.log("Initial character summarization process complete.");
+            setInitialSummarizationDone(true);
+        } catch (e) {
+            console.error("An error occurred during the batch summarization process.", e);
+            // Don't set the flag to true, so it can retry on next load.
+        }
+    };
+
+    // Use a timeout to avoid running immediately on hot-reload during dev and to let the app settle.
+    const timer = setTimeout(() => {
+      summarizeInitialCharacters();
+    }, 1000);
+
+    return () => clearTimeout(timer);
+    
+}, [initialSummarizationDone, characters, setCharacters, getUtilityConnection, setInitialSummarizationDone]);
 
   const allUsers = useMemo(() => Object.values(users).map(u => u.user), [users]);
 
@@ -631,16 +708,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const utilityConnection = getUtilityConnection();
     const isNewCharacter = !characters.some(c => c.id === character.id);
     
-    setCharacters(prev => {
-        const existingIndex = prev.findIndex(c => c.id === character.id);
-        if (existingIndex > -1) {
-            const updated = [...prev];
-            updated[existingIndex] = character;
-            return updated;
-        }
-        return [character, ...prev];
-    });
-
+    // Moderation scans
     if (utilityConnection) {
         const textToScan = [character.name, character.description, character.personality, character.greeting, character.story, character.situation].join(' ');
         const textScanResult = await scanText(textToScan, utilityConnection);
@@ -654,6 +722,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
         }
     }
+    
+    // Summarization step
+    let summary: Character['summary'] = {};
+    if (utilityConnection) {
+        try {
+            summary = await summarizeCharacterData(character, utilityConnection);
+        } catch (e) {
+            console.error("Failed to generate character summary, saving without it.", e);
+        }
+    }
+
+    const characterWithSummary = { ...character, summary };
+
+    setCharacters(prev => {
+        const existingIndex = prev.findIndex(c => c.id === characterWithSummary.id);
+        if (existingIndex > -1) {
+            const updated = [...prev];
+            updated[existingIndex] = characterWithSummary;
+            return updated;
+        }
+        return [characterWithSummary, ...prev];
+    });
 
     if (isNewCharacter && character.isPublic && currentUser) {
         const creator = currentUser;

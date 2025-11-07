@@ -1,8 +1,9 @@
 import React, { useState, useContext, useMemo, useEffect } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { ApiConnection, Character, GlobalSettings, AIContextSettings, CharacterContextField, ChatMessage, User } from '../types';
-import { SystemMonitorIcon, SpinnerIcon, UserIcon, DocumentTextIcon, CodeBracketIcon, ChatBubbleIcon, CpuChipIcon, ServerIcon, SparklesIcon, DatabaseIcon } from './Icons';
-import { buildSystemPrompt, HAVEN_STORIES_PROMPT, BEYOND_THE_HAVEN_PROMPT, generateChatResponseWithStats } from '../services/aiService';
+import { SystemMonitorIcon, SpinnerIcon, UserIcon, DocumentTextIcon, CodeBracketIcon, ChatBubbleIcon, CpuChipIcon, ServerIcon, SparklesIcon, DatabaseIcon, CloseIcon } from './Icons';
+// FIX: Import 'generateChatResponseWithStats' to resolve the 'Cannot find name' error.
+import { buildSystemPrompt, HAVEN_PROMPT, BEYOND_THE_HAVEN_PROMPT, generateChatResponseWithStats } from '../services/aiService';
 
 const StatusIndicator: React.FC<{ isOk: boolean; okText?: string; failText?: string }> = ({ isOk, okText = 'OK', failText = 'Error/Inactive' }) => (
     <div className="flex items-center gap-2">
@@ -10,7 +11,6 @@ const StatusIndicator: React.FC<{ isOk: boolean; okText?: string; failText?: str
         <span className="text-sm font-medium">{isOk ? okText : failText}</span>
     </div>
 );
-
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
     <div className="bg-primary border border-border rounded-lg">
@@ -39,123 +39,75 @@ const FlowArrow: React.FC = () => (
     </div>
 );
 
-const FlowCard: React.FC<{ title: string; icon: React.ReactNode; active?: boolean; children?: React.ReactNode; }> = ({ title, icon, active = true, children }) => (
-    <div className={`border rounded-lg ${active ? 'border-border bg-secondary' : 'border-dashed border-tertiary bg-secondary/50 text-text-secondary'}`}>
-        <h4 className="font-semibold flex items-center gap-2 p-3 border-b border-border">
-            {icon} {title}
-        </h4>
-        {children && <div className="p-3 text-sm space-y-2">{children}</div>}
-    </div>
-);
-
-const LogicBlock: React.FC<{ title: string; condition: string; then: string; elseStmt: string; active?: boolean; }> = ({ title, condition, then, elseStmt, active = true }) => (
-    <div>
-        <h5 className="text-xs font-semibold text-text-secondary mb-1">{title}</h5>
-        <div className={`p-2 rounded ${active ? 'bg-primary' : 'bg-tertiary'}`}>
-            <p><span className="font-bold text-accent-secondary">IF</span> <span className="font-mono text-xs">{condition}</span></p>
-            <p className="pl-4 text-xs"><strong>THEN:</strong> {then}</p>
-            <p><span className="font-bold text-accent-secondary">ELSE</span></p>
-            <p className="pl-4 text-xs"><strong>THEN:</strong> {elseStmt}</p>
-        </div>
-    </div>
-);
-
-const ChatFlowDiagram: React.FC = () => {
-    const auth = useContext(AuthContext);
-    if (!auth) return null;
-    const { globalSettings, aiContextSettings, apiConnections, defaultApiConnectionId } = auth;
+const FlowCard: React.FC<{ title: string; icon: React.ReactNode; children?: React.ReactNode; duration?: number; status: 'success' | 'failure' | 'info' }> = ({ title, icon, children, duration, status }) => {
+    const statusClasses = {
+        success: 'border-success',
+        failure: 'border-danger',
+        info: 'border-accent-secondary'
+    };
+    const borderClass = statusClasses[status];
     
-    const allFields: CharacterContextField[] = ['gender', 'description', 'personality', 'story', 'situation', 'feeling', 'appearance'];
-    const defaultConnection = apiConnections.find(c => c.id === defaultApiConnectionId);
-
     return (
-        <Section title="Dynamic Chat Flow Diagram">
-            <div className="flex flex-col items-center">
-                <FlowCard title="User Input" icon={<UserIcon className="w-5 h-5" />} />
-                <FlowArrow />
-                <div className="grid grid-cols-2 gap-2 w-full">
-                    <FlowCard title="Character Data" icon={<DocumentTextIcon className="w-5 h-5" />} />
-                    <FlowCard title="Narrative State" icon={<DatabaseIcon className="w-5 h-5" />} />
+        <details className={`border rounded-lg border-l-4 ${borderClass} bg-secondary`} open>
+            <summary className="font-semibold flex items-center justify-between gap-2 p-3 cursor-pointer">
+                <div className="flex items-center gap-2">
+                    {icon} {title}
                 </div>
-                <FlowArrow />
-                <FlowCard title="Context Assembly" icon={<CodeBracketIcon className="w-5 h-5" />}>
-                    <LogicBlock 
-                        title="Base Prompt Selection"
-                        condition="character.isBeyondTheHaven"
-                        then={`Use 'Beyond the Haven' Prompt (${globalSettings.beyondTheHavenPrompt ? 'Custom' : 'Default'})`}
-                        elseStmt={`Use 'Haven Stories' Prompt (${globalSettings.havenStoriesPrompt ? 'Custom' : 'Default'})`}
-                    />
-                    <div>
-                         <h5 className="text-xs font-semibold text-text-secondary mb-1">Character Field Injection</h5>
-                         <div className="grid grid-cols-2 gap-1 p-2 bg-primary rounded text-xs">
-                            {allFields.map(field => {
-                                const isActive = aiContextSettings.includedFields.includes(field);
-                                return (
-                                    <div key={field} className={`flex items-center gap-1 ${isActive ? 'text-text-primary' : 'text-text-secondary line-through'}`}>
-                                        <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-success' : 'bg-tertiary'}`}></span>
-                                        <span className="capitalize">{field}</span>
-                                    </div>
-                                );
-                            })}
-                         </div>
-                    </div>
-                    <LogicBlock
-                        title="Stat System Injection"
-                        condition="character.stats.length > 0"
-                        then="Append stat definitions and function call instruction."
-                        elseStmt="Skip."
-                    />
-                    <div>
-                        <h5 className="text-xs font-semibold text-text-secondary mb-1">Narrative State Injection</h5>
-                        <div className="p-2 rounded bg-primary text-xs">
-                            <p>Always active. Appends the current narrative state JSON and includes the `update_narrative_state` function instruction to the prompt.</p>
-                        </div>
-                    </div>
-                    <LogicBlock
-                        title="Kid Mode Filter"
-                        condition="chatSettings.kidMode === true"
-                        then={`Append 'Kid Mode' Prompt (${globalSettings.kidModePrompt ? 'Active' : 'Not Set'})`}
-                        elseStmt="Skip."
-                        active={!!globalSettings.kidModePrompt}
-                    />
-                </FlowCard>
-                <FlowArrow />
-                <FlowCard title="System Prompt Assembled" icon={<DocumentTextIcon className="w-5 h-5" />} />
-                <FlowArrow />
-                <FlowCard title="Chat History Context" icon={<ChatBubbleIcon className="w-5 h-5" />}>
-                     <p>Last <strong className="text-accent-primary">{aiContextSettings.historyLength}</strong> messages are included.</p>
-                </FlowCard>
-                <FlowArrow />
-                <FlowCard title="API Connection & Call" icon={<ServerIcon className="w-5 h-5" />}>
-                    <p>Default Connection: <strong className="text-accent-primary">{defaultConnection?.name || 'Not Set'}</strong></p>
-                    <LogicBlock 
-                        title="Provider Logic"
-                        condition={`connection.provider === 'Gemini'`}
-                        then="Use Gemini SDK"
-                        elseStmt="Use OpenAI-compatible API endpoint"
-                    />
-                     <p className="text-xs mt-2"><strong>Note:</strong> Character's model setting overrides the default if a connection is found.</p>
-                </FlowCard>
-                <FlowArrow />
-                <FlowCard title="API Response" icon={<SparklesIcon className="w-5 h-5" />}>
-                    <LogicBlock
-                        title="Stat Parsing"
-                        condition="Function call for 'update_stats' is present"
-                        then="Extract 'responseText' and 'statChanges' separately."
-                        elseStmt="Response is treated as plain 'responseText'."
-                    />
-                     <LogicBlock
-                        title="Narrative State Parsing"
-                        condition="Function call for 'update_narrative_state' is present"
-                        then="Extract 'newStateJson' and parse it."
-                        elseStmt="Narrative state remains unchanged."
-                    />
-                </FlowCard>
-            </div>
-        </Section>
+                {duration !== undefined && <span className="text-xs text-text-secondary">{duration}ms</span>}
+            </summary>
+            {children && <div className="p-3 pt-0 text-sm space-y-2">{children}</div>}
+        </details>
     );
 };
 
+const ChatFlowDiagram: React.FC = () => (
+    <div className="space-y-2">
+        <FlowCard title="User Input" icon={<UserIcon className="w-5 h-5" />} status="info">
+            <p>The user sends a message to the character.</p>
+        </FlowCard>
+        <FlowArrow />
+        <FlowCard title="Character & System Data Loaded" icon={<DatabaseIcon className="w-5 h-5" />} status="info">
+            <ul className="list-disc list-inside pl-2 text-xs">
+                <li>Character Profile (Personality, Story, etc.) - <span className="font-semibold">Summarized version is prioritized.</span></li>
+                <li>Chat History</li>
+                <li>Current Character Stats</li>
+                <li>Current Narrative State</li>
+                <li>Global & AI Context Settings</li>
+            </ul>
+        </FlowCard>
+        <FlowArrow />
+        <FlowCard title="System Prompt Assembled" icon={<DocumentTextIcon className="w-5 h-5" />} status="info">
+            <p>All data is combined into a single, comprehensive prompt for the AI, including instructions, character sheet, and history.</p>
+        </FlowCard>
+        <FlowArrow />
+        <FlowCard title="API Call" icon={<ServerIcon className="w-5 h-5" />} status="info">
+            <p>The assembled prompt is sent to the selected AI model's API (e.g., Gemini or an OpenAI-compatible endpoint).</p>
+        </FlowCard>
+        <FlowArrow />
+        <FlowCard title="API Response Received" icon={<SparklesIcon className="w-5 h-5" />} status="info">
+            <p>The API returns a response. This can be:</p>
+            <ul className="list-disc list-inside pl-2 text-xs">
+                <li>A standard text message.</li>
+                <li>A function call to update stats.</li>
+                <li>A function call to update the narrative state.</li>
+                <li>A combination of the above.</li>
+            </ul>
+        </FlowCard>
+        <FlowArrow />
+        <FlowCard title="Response Processing" icon={<CpuChipIcon className="w-5 h-5" />} status="info">
+            <p>The system parses the response:</p>
+             <ul className="list-disc list-inside pl-2 text-xs">
+                <li>Extracts the character's reply text.</li>
+                <li>Applies any stat changes.</li>
+                <li>Updates the narrative state.</li>
+            </ul>
+        </FlowCard>
+        <FlowArrow />
+        <FlowCard title="Display to User" icon={<ChatBubbleIcon className="w-5 h-5" />} status="info">
+            <p>The final, formatted message is displayed in the chat window. Stat changes may be shown if enabled.</p>
+        </FlowCard>
+    </div>
+);
 
 const OverviewTab: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -200,6 +152,7 @@ const OverviewTab: React.FC = () => {
     );
     const totalPosts = forumThreads.reduce((acc, thread) => acc + (getPostsForThread?.(thread.id)?.length || 0), 0);
     const charsWithNarrativeSystem = characters.length; // Now all characters use it
+    const summarizedCharacters = characters.filter(c => c.summary && Object.keys(c.summary).length > 0).length;
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -242,8 +195,8 @@ const OverviewTab: React.FC = () => {
             </Section>
             <Section title="Global Prompts">
                 <details>
-                    <summary className="cursor-pointer font-semibold">Haven Stories Prompt <span className="text-xs text-text-secondary">({globalSettings.havenStoriesPrompt ? 'Custom' : 'Default'})</span></summary>
-                    <pre className="text-xs font-mono bg-primary p-2 mt-1 rounded border border-border max-h-40 overflow-y-auto">{globalSettings.havenStoriesPrompt || HAVEN_STORIES_PROMPT}</pre>
+                    <summary className="cursor-pointer font-semibold">Haven Prompt <span className="text-xs text-text-secondary">({globalSettings.havenPrompt ? 'Custom' : 'Default'})</span></summary>
+                    <pre className="text-xs font-mono bg-primary p-2 mt-1 rounded border border-border max-h-40 overflow-y-auto">{globalSettings.havenPrompt || HAVEN_PROMPT}</pre>
                 </details>
                  <details>
                     <summary className="cursor-pointer font-semibold">Beyond the Haven Prompt <span className="text-xs text-text-secondary">({globalSettings.beyondTheHavenPrompt ? 'Custom' : 'Default'})</span></summary>
@@ -260,6 +213,7 @@ const OverviewTab: React.FC = () => {
                 <InfoRow label="Total Users" value={String(allUsers.length)} />
                 <InfoRow label="Total Characters" value={String(characters.length)} />
                 <InfoRow label="Public / Private" value={`${characters.filter(c => c.isPublic).length} / ${characters.filter(c => !c.isPublic).length}`} />
+                <InfoRow label="Summarized Characters" value={`${summarizedCharacters} / ${characters.length}`} />
                 <InfoRow label="Narrative System Users" value={`${charsWithNarrativeSystem} / ${characters.length}`} />
                 <InfoRow label="Total Chats" value={String(Object.values(chatHistories).reduce((acc: number, userHistory: any) => acc + Object.keys(userHistory).length, 0))}/>
                 <InfoRow label="Total Messages" value={String(totalMessages)} />
@@ -271,33 +225,13 @@ const OverviewTab: React.FC = () => {
                 <InfoRow label="Pending AI Alerts" value={String(aiAlerts.filter(a => a.status !== 'Resolved').length)} />
                 <InfoRow label="Open Tickets" value={String(tickets.filter(t => t.status !== 'Resolved').length)} />
             </Section>
-            <div className="lg:col-span-2 xl:col-span-3">
+            <Section title="Static Chat Flow Diagram">
                 <ChatFlowDiagram />
-            </div>
+            </Section>
         </div>
     );
 };
 
-
-const FlowStep: React.FC<{ title: string; status: 'success' | 'failure' | 'info'; data?: any, children?: React.ReactNode, duration?: number }> = ({ title, status, data, children, duration }) => {
-    const statusClasses = {
-        success: 'border-success',
-        failure: 'border-danger',
-        info: 'border-accent-secondary'
-    };
-    return (
-        <details className="bg-primary rounded-lg border-l-4 p-4" open>
-            <summary className={`font-semibold cursor-pointer flex justify-between items-center ${statusClasses[status].replace('border-','text-')}`}>
-                <span>{title}</span>
-                {duration !== undefined && <span className="text-xs text-text-secondary">{duration}ms</span>}
-            </summary>
-            <div className="mt-2 pl-4 border-l border-border text-sm">
-                {children}
-                {data && <pre className="whitespace-pre-wrap bg-tertiary p-2 rounded mt-2 text-xs font-mono max-h-60 overflow-y-auto">{typeof data === 'object' ? JSON.stringify(data, null, 2) : String(data)}</pre>}
-            </div>
-        </details>
-    );
-}
 
 const LiveSimulationTab: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -307,6 +241,7 @@ const LiveSimulationTab: React.FC = () => {
     const [modelOverride, setModelOverride] = useState<string>('');
     const [userInput, setUserInput] = useState('');
     const [simulationResults, setSimulationResults] = useState<any[]>([]);
+    const [forceFullData, setForceFullData] = useState(false);
 
     const [overrideContext, setOverrideContext] = useState(false);
     const [tempIncludedFields, setTempIncludedFields] = useState<CharacterContextField[]>(aiContextSettings.includedFields);
@@ -335,32 +270,29 @@ const LiveSimulationTab: React.FC = () => {
         const results: any[] = [];
 
         try {
-            results.push({ title: "1. Initialization", status: 'info', data: { character: character.name, model: modelOverride, userInput }});
+            results.push({ title: "1. Initialization", icon: <UserIcon className="w-5 h-5" />, status: 'info', data: { character: character.name, model: modelOverride, userInput }});
             
             const stats = auth.chatStats[currentUser.id]?.[character.id] || {};
             character.stats.forEach(s => {
                 if(stats[s.id] === undefined) stats[s.id] = s.initialValue;
             });
              if(character.stats.length > 0) {
-                results.push({ title: "2a. Stat Initialization", status: 'info', data: stats });
+                results.push({ title: "2a. Stat Initialization", icon: <DatabaseIcon className="w-5 h-5" />, status: 'info', data: stats });
             }
 
             const narrativeState = narrativeStates[currentUser.id]?.[character.id] || {};
-            results.push({ title: "2b. Narrative State Initialization", status: 'info', data: narrativeState });
+            results.push({ title: "2b. Narrative State Initialization", icon: <DatabaseIcon className="w-5 h-5" />, status: 'info', data: narrativeState });
 
             const connection = findConnectionForModel(modelOverride);
             if (!connection) {
-                results.push({ title: "3. Connection Selection", status: 'failure', data: `No active connection found for model: ${modelOverride}` });
-                setSimulationResults(results); return;
+                results.push({ title: "3. Connection Selection", icon: <ServerIcon className="w-5 h-5 text-danger" />, status: 'failure', data: `No active connection found for model: ${modelOverride}` });
+                setSimulationResults(results); setIsSimulating(false); return;
             }
-            results.push({ title: "3. Connection Selection", status: 'success', data: { name: connection.name, provider: connection.provider, model: modelOverride } });
+            results.push({ title: "3. Connection Selection", icon: <ServerIcon className="w-5 h-5" />, status: 'success', data: { name: connection.name, provider: connection.provider, model: modelOverride } });
             
-            const basePrompt = character.isBeyondTheHaven ? globalSettings.beyondTheHavenPrompt || BEYOND_THE_HAVEN_PROMPT : globalSettings.havenStoriesPrompt || HAVEN_STORIES_PROMPT;
-            const charDefinition = buildSystemPrompt(character, currentUser, globalSettings, aiContextSettings, false, stats, narrativeState, overrideContext ? tempIncludedFields : undefined).split(basePrompt)[1] || '';
-            results.push({ title: "4. Context Assembly", status: 'info', data: { 'Base Prompt': basePrompt, 'Character & Stat Definition': charDefinition.trim() }});
-
-            const finalSystemPrompt = buildSystemPrompt(character, currentUser, globalSettings, aiContextSettings, false, stats, narrativeState, overrideContext ? tempIncludedFields : undefined);
-            results.push({ title: "5. Final Assembled System Prompt", status: 'success', data: finalSystemPrompt });
+            const characterForPrompt = forceFullData ? { ...character, summary: undefined } : character;
+            const finalSystemPrompt = buildSystemPrompt(characterForPrompt, currentUser, globalSettings, aiContextSettings, false, stats, narrativeState, overrideContext ? tempIncludedFields : undefined);
+            results.push({ title: "4. System Prompt Assembled", icon: <DocumentTextIcon className="w-5 h-5" />, status: 'success', data: finalSystemPrompt });
 
             const history: ChatMessage[] = [{ id: 'sim-user-1', sender: 'user', text: userInput, timestamp: Date.now() }];
             
@@ -380,16 +312,16 @@ const LiveSimulationTab: React.FC = () => {
                     ]
                 };
             }
-            results.push({ title: "6. API Request Payload", status: 'info', data: requestPayload});
+            results.push({ title: "5. API Request Payload", icon: <CpuChipIcon className="w-5 h-5" />, status: 'info', data: requestPayload});
             
-            const response = await generateChatResponseWithStats(character, history, currentUser, globalSettings, aiContextSettings, false, modelOverride, stats, narrativeState, connection);
+            const response = await generateChatResponseWithStats(characterForPrompt, history, currentUser, globalSettings, aiContextSettings, false, modelOverride, stats, narrativeState, connection);
             const duration = Date.now() - startTime;
-            results.push({ title: "7. API Response", status: 'success', duration, data: response });
+            results.push({ title: "6. API Response", icon: <SparklesIcon className="w-5 h-5" />, status: 'success', duration, data: response });
             
-            results.push({ title: "8. Final Processed Output", status: 'success', data: { responseText: response.responseText, statChanges: response.statChanges, newNarrativeState: response.newNarrativeState }});
+            results.push({ title: "7. Final Processed Output", icon: <ChatBubbleIcon className="w-5 h-5" />, status: 'success', data: { responseText: response.responseText, statChanges: response.statChanges, newNarrativeState: response.newNarrativeState }});
 
         } catch (error: any) {
-            results.push({ title: "Simulation Error", status: 'failure', data: error.message });
+            results.push({ title: "Simulation Error", icon: <CloseIcon className="w-5 h-5 text-danger" />, status: 'failure', data: error.message });
         } finally {
             setIsSimulating(false);
             setSimulationResults(results);
@@ -400,46 +332,62 @@ const LiveSimulationTab: React.FC = () => {
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="space-y-4">
+            <div>
                 <Section title="Simulation Setup">
-                    <select value={selectedCharId} onChange={e => setSelectedCharId(e.target.value)} className="w-full p-2 bg-secondary border border-border rounded-md">
-                        <option value="">Select a Character...</option>
-                        {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                    <select value={modelOverride} onChange={e => setModelOverride(e.target.value)} className="w-full p-2 bg-secondary border border-border rounded-md" disabled={!selectedCharId}>
-                        <option value="">Select a Model...</option>
-                        {apiConnections.filter(c => c.isActive).map(conn => (
-                            <optgroup key={conn.id} label={conn.name}>
-                                {conn.models.map(m => <option key={m} value={m}>{m}</option>)}
-                            </optgroup>
-                        ))}
-                    </select>
-                    <textarea value={userInput} onChange={e => setUserInput(e.target.value)} placeholder="Enter user message..." className="w-full p-2 bg-secondary border border-border rounded-md" rows={4}/>
-                    
-                    <details className="bg-tertiary p-2 rounded-md">
-                        <summary className="text-sm cursor-pointer" onClick={() => setOverrideContext(c => !c)}>Override Context Fields</summary>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
-                        {allFields.map(field => (
-                            <label key={field} className="flex items-center space-x-2 text-text-primary text-sm">
-                                <input type="checkbox" checked={tempIncludedFields.includes(field)} onChange={() => handleFieldToggle(field)} className="form-checkbox h-4 w-4 text-accent-primary bg-primary rounded"/>
-                                <span>{field}</span>
+                    <div className="space-y-4">
+                        <select value={selectedCharId} onChange={e => setSelectedCharId(e.target.value)} className="w-full p-2 bg-secondary border border-border rounded-md">
+                            <option value="">Select a Character...</option>
+                            {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                        <select value={modelOverride} onChange={e => setModelOverride(e.target.value)} className="w-full p-2 bg-secondary border border-border rounded-md" disabled={!selectedCharId}>
+                            <option value="">Select a Model...</option>
+                            {apiConnections.filter(c => c.isActive).map(conn => (
+                                <optgroup key={conn.id} label={conn.name}>
+                                    {conn.models.map(m => <option key={m} value={m}>{m}</option>)}
+                                </optgroup>
+                            ))}
+                        </select>
+                        <textarea value={userInput} onChange={e => setUserInput(e.target.value)} placeholder="Enter user message..." className="w-full p-2 bg-secondary border border-border rounded-md" rows={4}/>
+                        
+                        <div className="p-2 bg-tertiary rounded-md">
+                            <label className="flex items-center gap-2 text-sm cursor-pointer">
+                                <input type="checkbox" checked={forceFullData} onChange={e => setForceFullData(e.target.checked)} className="form-checkbox h-4 w-4 text-accent-primary bg-primary rounded"/>
+                                Force use of full data (ignore summary)
                             </label>
-                        ))}
                         </div>
-                    </details>
 
-                    <button onClick={handleRunSimulation} disabled={isSimulating || !selectedCharId || !userInput || !modelOverride} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-accent-secondary text-white rounded-md disabled:bg-hover">
-                        {isSimulating && <SpinnerIcon className="w-5 h-5 animate-spin"/>}
-                        Run Simulation
-                    </button>
+                        <details className="bg-tertiary p-2 rounded-md">
+                            <summary className="text-sm cursor-pointer" onClick={() => setOverrideContext(c => !c)}>Override Context Fields</summary>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+                            {allFields.map(field => (
+                                <label key={field} className="flex items-center space-x-2 text-text-primary text-sm">
+                                    <input type="checkbox" checked={tempIncludedFields.includes(field)} onChange={() => handleFieldToggle(field)} className="form-checkbox h-4 w-4 text-accent-primary bg-primary rounded"/>
+                                    <span className="capitalize">{field}</span>
+                                </label>
+                            ))}
+                            </div>
+                        </details>
+
+                        <button onClick={handleRunSimulation} disabled={isSimulating || !selectedCharId || !userInput || !modelOverride} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-accent-secondary text-white rounded-md disabled:bg-hover">
+                            {isSimulating && <SpinnerIcon className="w-5 h-5 animate-spin"/>}
+                            Run Simulation
+                        </button>
+                    </div>
                 </Section>
             </div>
-            <div className="space-y-4">
-                 <Section title="Simulation Flow">
+            <div>
+                 <Section title="Live Flow Diagram">
                     {simulationResults.length === 0 && !isSimulating && <p className="text-text-secondary text-center py-8">Run a simulation to see the data flow.</p>}
                     {isSimulating && <div className="flex justify-center items-center gap-3 py-8 text-text-secondary"><SpinnerIcon className="w-6 h-6 animate-spin" /><span>Simulation in progress...</span></div>}
                     <div className="space-y-2">
-                        {simulationResults.map((result, i) => <FlowStep key={i} {...result} />)}
+                        {simulationResults.map((result, i) => (
+                             <React.Fragment key={i}>
+                                <FlowCard title={result.title} icon={result.icon} status={result.status} duration={result.duration}>
+                                    {result.data && <pre className="whitespace-pre-wrap bg-primary p-2 rounded mt-2 text-xs font-mono max-h-60 overflow-y-auto">{typeof result.data === 'object' ? JSON.stringify(result.data, null, 2) : String(result.data)}</pre>}
+                                </FlowCard>
+                                {i < simulationResults.length - 1 && <FlowArrow />}
+                            </React.Fragment>
+                        ))}
                     </div>
                 </Section>
             </div>

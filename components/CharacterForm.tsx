@@ -12,7 +12,7 @@ const DEFAULT_CHARACTER_AVATAR = 'data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIw
 declare let Cropper: any;
 
 interface CharacterFormProps {
-  onSave: (character: Omit<Character, 'creatorId'> & { creatorId?: string }, avatarFile: File | null) => void;
+  onSave: (character: Omit<Character, 'creatorId'> & { creatorId?: string }, avatarFile: File | null) => Promise<void>;
   onCancel: () => void;
   existingCharacter?: Character;
   isUserAdult?: boolean;
@@ -68,6 +68,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null); // Store base64 string
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   
   const [artStyle, setArtStyle] = useState('no-preference');
   const [colorPalette, setColorPalette] = useState('no-preference');
@@ -172,6 +173,12 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!character.name || !character.personality || !character.greeting || !character.description) {
+        alert("Please fill in all required fields: Name, Description, Greeting, and Personality.");
+        return;
+    }
+
+    setIsSaving(true);
     
     let finalCharacterData: any = { ...character, isSilencedByAdmin: existingCharacter?.isSilencedByAdmin || false };
 
@@ -183,6 +190,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
         } catch (error) {
             console.error("Failed to save image:", error);
             alert("Error saving character avatar. Please try again.");
+            setIsSaving(false);
             return;
         }
     } else if (previewUrl === null) {
@@ -198,10 +206,13 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
         finalCharacterData.isPublic = false;
     }
 
-    if (finalCharacterData.name && finalCharacterData.personality && finalCharacterData.greeting && finalCharacterData.description) {
-        onSave(finalCharacterData, selectedFile);
-    } else {
-        alert("Please fill in all required fields: Name, Description, Greeting, and Personality.");
+    try {
+        await onSave(finalCharacterData, selectedFile);
+    } catch (err) {
+        console.error("Error during character save:", err);
+        alert("An error occurred while saving the character. Please try again.");
+    } finally {
+        setIsSaving(false);
     }
   };
   
@@ -703,7 +714,16 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
 
         <div className="flex justify-end space-x-4 pt-4">
           <button type="button" onClick={onCancel} className="px-6 py-2 bg-tertiary hover:bg-hover rounded-md transition-colors">Cancel</button>
-          <button type="submit" className="px-6 py-2 bg-accent-secondary hover:bg-accent-secondary-hover text-white rounded-md transition-colors">Save Character</button>
+          <button type="submit" className="px-6 py-2 bg-accent-secondary hover:bg-accent-secondary-hover text-white rounded-md transition-colors flex items-center gap-2 disabled:bg-hover" disabled={isSaving}>
+            {isSaving ? (
+              <>
+                <SpinnerIcon className="w-5 h-5 animate-spin"/>
+                <span>Saving...</span>
+              </>
+            ) : (
+              'Save Character'
+            )}
+          </button>
         </div>
       </form>
     </div>

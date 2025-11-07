@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useEffect, useState, useMemo, useContext, useRef } from 'react';
 import type { User, AppView, Character, Notification, DMConversation, DirectMessage } from '../types';
 import { BellIcon, MessageIcon, SendIcon, UploadIcon, CloseIcon } from './Icons';

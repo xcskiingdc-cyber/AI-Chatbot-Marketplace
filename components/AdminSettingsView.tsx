@@ -1,12 +1,11 @@
-
 import React, { useState, useContext, useMemo, useEffect, useCallback, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { GlobalSettings, User, UserType, Character, AIContextSettings, CharacterContextField, UserRole, AppView } from '../types';
 import ConfirmationModal from './ConfirmationModal';
 import ProfileEditModal from './ProfileEditModal';
 import Avatar from './Avatar';
-import { ShieldCheckIcon } from './Icons';
-import { BEYOND_THE_HAVEN_PROMPT, HAVEN_STORIES_PROMPT } from '../services/aiService';
+import { ShieldCheckIcon, SaveIcon } from './Icons';
+import { BEYOND_THE_HAVEN_PROMPT, HAVEN_PROMPT } from '../services/aiService';
 
 interface AdminConsoleViewProps {
   setView: (view: AppView) => void;
@@ -109,21 +108,27 @@ const SiteStatsTab: React.FC = () => {
 
 const GlobalPromptsTab: React.FC = () => {
     const auth = useContext(AuthContext);
-    const [prompts, setPrompts] = useState<GlobalSettings>({ havenStoriesPrompt: '', beyondTheHavenPrompt: '', kidModePrompt: '' });
+    const [prompts, setPrompts] = useState<Omit<GlobalSettings, 'kidModePrompt'>>({ 
+        havenPrompt: '',
+        beyondTheHavenPrompt: '',
+    });
+    const [isSaved, setIsSaved] = useState(false);
 
     useEffect(() => {
         if (auth?.globalSettings) {
             setPrompts({
-                havenStoriesPrompt: auth.globalSettings.havenStoriesPrompt || HAVEN_STORIES_PROMPT,
+                havenPrompt: auth.globalSettings.havenPrompt || HAVEN_PROMPT,
                 beyondTheHavenPrompt: auth.globalSettings.beyondTheHavenPrompt || BEYOND_THE_HAVEN_PROMPT,
-                kidModePrompt: auth.globalSettings.kidModePrompt
             });
         }
     }, [auth?.globalSettings]);
 
     const handleSave = () => {
-        auth?.updateGlobalSettings(prompts);
-        alert('Global prompts updated!');
+        if (auth) {
+            auth.updateGlobalSettings({ ...auth.globalSettings, ...prompts });
+        }
+        setIsSaved(true);
+        setTimeout(() => setIsSaved(false), 2500);
     };
     
     const labelClasses = "block text-sm font-medium text-accent-primary mb-2";
@@ -132,17 +137,17 @@ const GlobalPromptsTab: React.FC = () => {
     return (
         <div className="space-y-6">
             <div>
-                <label htmlFor="havenStoriesPrompt" className={labelClasses}>Global Haven Stories Prompt</label>
+                <label htmlFor="havenPrompt" className={labelClasses}>Haven Global Prompt</label>
                 <textarea 
-                    id="havenStoriesPrompt"
-                    value={prompts.havenStoriesPrompt}
-                    onChange={(e) => setPrompts(p => ({ ...p, havenStoriesPrompt: e.target.value }))}
+                    id="havenPrompt"
+                    value={prompts.havenPrompt}
+                    onChange={(e) => setPrompts(p => ({ ...p, havenPrompt: e.target.value }))}
                     className={textAreaClasses}
-                    placeholder="Enter the global Haven Stories prompt. If empty, the hardcoded default will be used."
+                    placeholder="Enter the global Haven prompt. If empty, the hardcoded default will be used."
                 />
             </div>
             <div>
-                <label htmlFor="beyondTheHavenPrompt" className={labelClasses}>Global Beyond the Haven Prompt</label>
+                <label htmlFor="beyondTheHavenPrompt" className={labelClasses}>Beyond the Haven Global Prompt</label>
                 <textarea 
                     id="beyondTheHavenPrompt"
                     value={prompts.beyondTheHavenPrompt}
@@ -152,8 +157,23 @@ const GlobalPromptsTab: React.FC = () => {
                 />
             </div>
             <div className="flex justify-end">
-                <button onClick={handleSave} className="px-6 py-2 bg-accent-secondary text-white hover:bg-accent-secondary-hover rounded-md transition-colors">
-                    Save Prompts
+                <button 
+                    onClick={handleSave} 
+                    className={`px-6 py-2 rounded-md transition-colors flex items-center justify-center gap-2 ${
+                        isSaved 
+                            ? 'bg-success text-white cursor-default' 
+                            : 'bg-accent-secondary text-white hover:bg-accent-secondary-hover'
+                    }`}
+                    disabled={isSaved}
+                >
+                    {isSaved ? (
+                        <>
+                            <SaveIcon className="w-5 h-5" />
+                            Saved!
+                        </>
+                    ) : (
+                        'Save Prompts'
+                    )}
                 </button>
             </div>
         </div>
@@ -163,6 +183,7 @@ const GlobalPromptsTab: React.FC = () => {
 const KidModeManagementTab: React.FC = () => {
     const auth = useContext(AuthContext);
     const [kidPrompt, setKidPrompt] = useState('');
+    const [isSaved, setIsSaved] = useState(false);
 
     useEffect(() => {
         if (auth?.globalSettings.kidModePrompt) {
@@ -173,7 +194,8 @@ const KidModeManagementTab: React.FC = () => {
     const handleSave = () => {
         if(auth) {
             auth.updateGlobalSettings({ ...auth.globalSettings, kidModePrompt: kidPrompt });
-            alert('Kid Mode prompt updated!');
+            setIsSaved(true);
+            setTimeout(() => setIsSaved(false), 2500);
         }
     };
     
@@ -194,8 +216,23 @@ const KidModeManagementTab: React.FC = () => {
                 />
             </div>
             <div className="flex justify-end">
-                <button onClick={handleSave} className="px-6 py-2 bg-accent-secondary text-white hover:bg-accent-secondary-hover rounded-md transition-colors">
-                    Save Kid Mode Prompt
+                <button 
+                    onClick={handleSave}
+                    className={`px-6 py-2 rounded-md transition-colors flex items-center justify-center gap-2 ${
+                        isSaved 
+                            ? 'bg-success text-white cursor-default' 
+                            : 'bg-accent-secondary text-white hover:bg-accent-secondary-hover'
+                    }`}
+                    disabled={isSaved}
+                >
+                    {isSaved ? (
+                        <>
+                            <SaveIcon className="w-5 h-5" />
+                            Saved!
+                        </>
+                    ) : (
+                        'Save Kid Mode Prompt'
+                    )}
                 </button>
             </div>
         </div>
@@ -217,6 +254,7 @@ const AIContextManagementTab: React.FC = () => {
         historyLength: '',
         maxResponseCharacters: ''
     });
+    const [isSaved, setIsSaved] = useState(false);
 
     const allFields: { id: CharacterContextField; label: string }[] = [
         { id: 'gender', label: 'Gender' },
@@ -226,6 +264,7 @@ const AIContextManagementTab: React.FC = () => {
         { id: 'story', label: 'Backstory' },
         { id: 'situation', label: 'Situation' },
         { id: 'feeling', label: 'Initial Mood' },
+        { id: 'greeting', label: 'Greeting' },
     ];
 
     useEffect(() => {
@@ -278,7 +317,8 @@ const AIContextManagementTab: React.FC = () => {
                 historyLength: historyLengthNum,
                 maxResponseCharacters: maxResponseCharactersNum,
             });
-            alert('AI Context settings updated!');
+            setIsSaved(true);
+            setTimeout(() => setIsSaved(false), 2500);
         }
     };
 
@@ -332,8 +372,23 @@ const AIContextManagementTab: React.FC = () => {
                 </div>
             </div>
              <div className="flex justify-end">
-                <button onClick={handleSave} className="px-6 py-2 bg-accent-secondary text-white hover:bg-accent-secondary-hover rounded-md transition-colors">
-                    Save AI Settings
+                <button 
+                    onClick={handleSave} 
+                    className={`px-6 py-2 rounded-md transition-colors flex items-center justify-center gap-2 ${
+                        isSaved 
+                            ? 'bg-success text-white cursor-default' 
+                            : 'bg-accent-secondary text-white hover:bg-accent-secondary-hover'
+                    }`}
+                    disabled={isSaved}
+                >
+                    {isSaved ? (
+                        <>
+                            <SaveIcon className="w-5 h-5" />
+                            Saved!
+                        </>
+                    ) : (
+                        'Save AI Settings'
+                    )}
                 </button>
             </div>
         </div>

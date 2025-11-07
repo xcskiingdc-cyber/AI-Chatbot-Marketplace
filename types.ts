@@ -1,4 +1,5 @@
 
+
 export const TTSVoices = {
   Kore: "Female - Calm",
   Zephyr: "Female - Warm",
@@ -148,7 +149,7 @@ export interface User {
 }
 
 // Fields that can be dynamically included in the AI context
-export type CharacterContextField = 'gender' | 'description' | 'personality' | 'story' | 'situation' | 'feeling' | 'appearance';
+export type CharacterContextField = 'gender' | 'description' | 'personality' | 'story' | 'situation' | 'feeling' | 'appearance' | 'greeting';
 
 export interface StatRule {
   id: string;
@@ -189,6 +190,15 @@ export interface Character {
   comments: Comment[];
   stats: CharacterStat[];
   statsVisible: boolean;
+  summary?: {
+    description?: string;
+    personality?: string;
+    story?: string;
+    situation?: string;
+    feeling?: string;
+    appearance?: string;
+    greeting?: string;
+  };
 }
 
 export interface ChatMessage {
@@ -200,7 +210,7 @@ export interface ChatMessage {
 }
 
 export interface GlobalSettings {
-    havenStoriesPrompt: string;
+    havenPrompt: string;
     beyondTheHavenPrompt: string;
     kidModePrompt: string;
 }
