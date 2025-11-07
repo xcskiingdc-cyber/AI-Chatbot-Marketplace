@@ -1,11 +1,8 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
-// FIX: Add ApiConnection to types and correct import path for getTextToSpeech
-import { ChatSettings, TTSVoices, TTSVoiceName, UserType, ApiConnection } from '../types';
+import { ChatSettings, TTSVoices, TTSVoiceName, UserType, ApiConnection, Character, CharacterStat } from '../types';
 import { CloseIcon, RefreshIcon, PlayIcon, SpinnerIcon, StopIcon } from './Icons';
 import ConfirmationModal from './ConfirmationModal';
-import { getTextToSpeech } from '../services/aiService';
+import { getTextToSpeech, summarizeNarrativeState } from '../services/aiService';
 import { decode, decodeAudioData } from '../utils/audioUtils';
 
 interface ChatSettingsModalProps {
@@ -15,11 +12,15 @@ interface ChatSettingsModalProps {
   onSave: (settings: ChatSettings) => void;
   onResetChat: () => void;
   userType: UserType;
-  // FIX: Add activeConnection to props to be used for API calls
-  activeConnection: ApiConnection;
+  apiConnections: ApiConnection[];
+  ttsConnection: ApiConnection | null;
+  character: Character;
+  narrativeState: any;
+  summaryConnection: ApiConnection | null;
+  characterStats: Record<string, number>;
 }
 
-const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, settings, onSave, onResetChat, userType, activeConnection }) => {
+const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, settings, onSave, onResetChat, userType, apiConnections, ttsConnection, character, narrativeState, summaryConnection, characterStats }) => {
   const [currentSettings, setCurrentSettings] = useState<ChatSettings>(settings);
   const [isResetModalOpen, setResetModalOpen] = useState(false);
   
@@ -60,6 +61,11 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
   };
 
   const playTestVoice = async (voice: TTSVoiceName) => {
+    if (!ttsConnection) {
+      alert("No connection with a TTS model is available.");
+      return;
+    }
+
     if (isTestPlaying === voice) {
         if(activeTestSourceRef.current) {
             activeTestSourceRef.current.stop();
@@ -74,8 +80,7 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
     
     setIsTestLoading(voice);
     try {
-        // FIX: Pass activeConnection to the API service function.
-        const base64Audio = await getTextToSpeech("Hello, this is a test of my voice.", voice, activeConnection);
+        const base64Audio = await getTextToSpeech("Hello, this is a test of my voice.", voice, ttsConnection);
         if (base64Audio) {
             if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
                 audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -110,19 +115,76 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
   const labelClasses = "block text-sm font-medium text-text-secondary mb-1";
   
   const canUsePro = userType !== 'Free';
-  const availableModels = activeConnection.models || [];
+
+  const StoryJournal: React.FC<{ data: any }> = ({ data }) => {
+    const [summary, setSummary] = useState<string | null>(null);
+    const [isSummarizing, setIsSummarizing] = useState(false);
+    const hasData = data && Object.keys(data).length > 0;
+
+    useEffect(() => {
+        if (hasData && !summary && summaryConnection) {
+            setIsSummarizing(true);
+            summarizeNarrativeState(data, character.name, summaryConnection)
+                .then(setSummary)
+                .catch(err => {
+                    console.error("Failed to summarize narrative state:", err);
+                    setSummary("Could not generate summary.");
+                })
+                .finally(() => setIsSummarizing(false));
+        }
+    }, [data, hasData, summary, summaryConnection, character.name]);
+
+    return (
+        <div>
+            <h3 className="font-medium text-text-primary mb-2">Story Journal</h3>
+            <p className="text-xs text-text-secondary mb-2">A summary of important events and choices from your chat, managed by the AI.</p>
+            <div className="p-3 bg-primary rounded-md border border-border text-sm max-h-40 overflow-y-auto">
+                {isSummarizing ? (
+                    <div className="flex items-center justify-center gap-2 text-text-secondary">
+                        <SpinnerIcon className="w-4 h-4 animate-spin" />
+                        <span>Generating summary...</span>
+                    </div>
+                ) : hasData && summary ? (
+                    <p className="text-sm whitespace-pre-wrap break-words">{summary}</p>
+                ) : (
+                    <p className="text-xs text-text-secondary italic">No story events recorded yet.</p>
+                )}
+            </div>
+        </div>
+    );
+  };
+  
+  const CharacterStats: React.FC<{ stats: CharacterStat[]; currentValues: Record<string, number> }> = ({ stats, currentValues }) => {
+    if (!stats || stats.length === 0) {
+        return null;
+    }
+    return (
+        <div className="border-t border-border pt-6">
+            <h3 className="font-medium text-text-primary mb-2">Character Stats</h3>
+            <p className="text-xs text-text-secondary mb-2">Current values based on your interactions.</p>
+            <div className="p-3 bg-primary rounded-md border border-border text-sm max-h-40 overflow-y-auto space-y-2">
+                {stats.map(stat => (
+                    <div key={stat.id} className="flex justify-between items-center">
+                        <span className="font-semibold">{stat.name}</span>
+                        <span className="font-mono bg-tertiary px-2 py-0.5 rounded">{currentValues[stat.id] ?? stat.initialValue} / {stat.max}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+  };
 
   return (
     <>
       <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-40 p-4">
-        <div className="bg-primary rounded-lg shadow-xl w-full max-w-md relative border border-border">
+        <div className="bg-gradient-to-b from-primary to-secondary rounded-lg shadow-soft-lg w-full max-w-md relative border border-border">
           <div className="p-4 border-b border-border flex justify-between items-center">
             <h2 className="text-xl font-bold text-text-primary">Chat Settings</h2>
             <button onClick={onClose} className="text-text-secondary hover:text-text-primary">
               <CloseIcon className="w-6 h-6" />
             </button>
           </div>
-          <div className="p-6 space-y-6">
+          <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
             
             <div className="flex items-center justify-between">
               <label htmlFor="isStreaming" className="font-medium text-text-primary">
@@ -156,17 +218,21 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
                 value={currentSettings.model} 
                 onChange={(e) => handleSettingChange('model', e.target.value)} 
                 className={formFieldClasses}>
-                {availableModels.map(modelName => {
-                    const isProModel = modelName.toLowerCase().includes('pro');
-                    const isDisabled = isProModel && !canUsePro;
-                    return (
-                        <option key={modelName} value={modelName} disabled={isDisabled}>
-                            {modelName} {isDisabled && '(Subscription required)'}
-                        </option>
-                    );
-                })}
+                {apiConnections.map(conn => (
+                    <optgroup key={conn.id} label={`${conn.name} (${conn.provider})`}>
+                        {conn.models.filter(m => !m.includes('tts')).map(modelName => {
+                            const isProModel = modelName.toLowerCase().includes('pro');
+                            const isDisabled = isProModel && !canUsePro;
+                            return (
+                                <option key={modelName} value={modelName} disabled={isDisabled}>
+                                    {modelName} {isDisabled && '(Subscription required)'}
+                                </option>
+                            );
+                        })}
+                    </optgroup>
+                ))}
               </select>
-               {!canUsePro && <p className="text-xs text-text-secondary mt-1">Upgrade to a Subscription or Ad-supported plan to use Pro models.</p>}
+               {!canUsePro && <p className="text-xs text-text-secondary mt-1">Upgrade to a Subscription plan to use Pro models.</p>}
             </div>
 
             <div>
@@ -186,6 +252,7 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
                     onClick={() => playTestVoice(currentSettings.ttsVoice)}
                     className="p-2 bg-tertiary rounded-md hover:bg-hover transition-colors"
                     aria-label="Test Voice"
+                    disabled={!ttsConnection}
                 >
                     {isTestLoading === currentSettings.ttsVoice ? <SpinnerIcon className="w-5 h-5 animate-spin" /> : 
                      isTestPlaying === currentSettings.ttsVoice ? <StopIcon className="w-5 h-5 text-accent-primary" /> :
@@ -193,6 +260,12 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
                 </button>
               </div>
             </div>
+            
+            <div className="border-t border-border pt-6">
+                <StoryJournal data={narrativeState} />
+            </div>
+            
+            <CharacterStats stats={character.stats} currentValues={characterStats} />
 
             <div className="border-t border-border pt-6">
                  <button 

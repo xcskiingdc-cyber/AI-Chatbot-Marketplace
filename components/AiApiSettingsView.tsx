@@ -1,4 +1,3 @@
-
 import React, { useState, useContext, useEffect } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { ApiConnection, ApiProvider } from '../types';
@@ -18,6 +17,7 @@ const ApiConnectionModal: React.FC<{
         apiKey: '',
         baseUrl: '',
         models: [],
+        isActive: true,
     });
     const [modelsStr, setModelsStr] = useState('');
 
@@ -26,7 +26,7 @@ const ApiConnectionModal: React.FC<{
             setConnection(existingConnection);
             setModelsStr(existingConnection.models.join(', '));
         } else {
-            setConnection({ name: '', provider: 'Gemini', apiKey: '', baseUrl: '', models: [] });
+            setConnection({ name: '', provider: 'Gemini', apiKey: '', baseUrl: '', models: [], isActive: true });
             setModelsStr('');
         }
     }, [existingConnection, isOpen]);
@@ -48,7 +48,7 @@ const ApiConnectionModal: React.FC<{
 
     return (
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-            <div className="bg-primary rounded-lg shadow-xl w-full max-w-lg relative border border-border">
+            <div className="bg-gradient-to-b from-primary to-secondary rounded-lg shadow-soft-lg w-full max-w-lg relative border border-border">
                 <div className="p-4 border-b border-border flex justify-between items-center">
                     <h2 className="text-xl font-bold">{existingConnection ? 'Edit' : 'Add'} API Connection</h2>
                     <button onClick={onClose}><CloseIcon className="w-6 h-6" /></button>
@@ -86,6 +86,21 @@ const ApiConnectionModal: React.FC<{
     );
 };
 
+const ToggleSwitch: React.FC<{ id: string, checked: boolean; onChange: () => void; disabled?: boolean }> = ({ id, checked, onChange, disabled }) => (
+    <label htmlFor={id} className={`relative inline-block w-14 h-8 align-middle select-none transition duration-200 ease-in ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+        <input 
+            type="checkbox" 
+            id={id}
+            checked={checked} 
+            onChange={!disabled ? onChange : undefined} 
+            className="sr-only"
+            disabled={disabled}
+        />
+        <div className={`block w-14 h-8 rounded-full ${checked ? 'bg-success' : 'bg-tertiary'}`}></div>
+        <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${checked ? 'transform translate-x-6' : ''}`}></div>
+    </label>
+);
+
 
 const AiApiSettingsView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -94,7 +109,7 @@ const AiApiSettingsView: React.FC = () => {
     const [connectionToDelete, setConnectionToDelete] = useState<ApiConnection | null>(null);
     
     if (!auth) return null;
-    const { apiConnections, activeApiConnectionId, addApiConnection, updateApiConnection, deleteApiConnection, setActiveApiConnection } = auth;
+    const { apiConnections, defaultApiConnectionId, addApiConnection, updateApiConnection, deleteApiConnection, setDefaultApiConnection, toggleApiConnectionActive } = auth;
 
     const handleSave = (connection: Omit<ApiConnection, 'id'> & { id?: string }) => {
         if (connection.id) { // Editing
@@ -122,23 +137,34 @@ const AiApiSettingsView: React.FC = () => {
             </div>
             <div className="space-y-4">
                 {apiConnections.map(conn => {
-                    const isActive = conn.id === activeApiConnectionId;
+                    const isDefault = conn.id === defaultApiConnectionId;
                     return (
-                        <div key={conn.id} className={`p-4 bg-secondary rounded-lg border-2 ${isActive ? 'border-success' : 'border-border'} flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4`}>
+                        <div key={conn.id} className={`p-4 bg-secondary rounded-lg border-2 ${isDefault ? 'border-success' : 'border-border'} flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4`}>
                             <div>
                                 <div className="flex items-center gap-3">
                                     <h3 className="text-xl font-bold">{conn.name}</h3>
-                                    {isActive && <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-success/20 text-success">Active</span>}
+                                    {isDefault && <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-success/20 text-success">Default</span>}
                                 </div>
                                 <p className="text-sm text-text-secondary">Provider: {conn.provider}</p>
                                 <p className="text-xs text-text-secondary mt-2 font-mono">ID: {conn.id}</p>
                             </div>
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                                {!isActive && (
-                                    <button onClick={() => setActiveApiConnection(conn.id)} className="px-3 py-1.5 text-sm bg-tertiary rounded-md hover:bg-hover">Set Active</button>
+                            <div className="flex items-center gap-4 flex-shrink-0">
+                                <div className="flex items-center gap-2">
+                                    <span className={`text-sm font-medium ${conn.isActive ? 'text-text-primary' : 'text-text-secondary'}`}>
+                                        {conn.isActive ? 'Active' : 'Inactive'}
+                                    </span>
+                                    <ToggleSwitch 
+                                        id={`toggle-${conn.id}`}
+                                        checked={conn.isActive} 
+                                        onChange={() => toggleApiConnectionActive(conn.id)}
+                                        disabled={isDefault}
+                                    />
+                                </div>
+                                {!isDefault && (
+                                    <button onClick={() => setDefaultApiConnection(conn.id)} disabled={!conn.isActive} className="px-3 py-1.5 text-sm bg-tertiary rounded-md hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed">Set as Default</button>
                                 )}
                                 <button onClick={() => { setConnectionToEdit(conn); setIsModalOpen(true); }} className="p-2 bg-tertiary rounded-md hover:bg-hover"><EditIcon className="w-4 h-4" /></button>
-                                <button onClick={() => setConnectionToDelete(conn)} disabled={isActive} className="p-2 bg-tertiary rounded-md hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"><DeleteIcon className="w-4 h-4" /></button>
+                                <button onClick={() => setConnectionToDelete(conn)} disabled={isDefault} className="p-2 bg-tertiary rounded-md hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"><DeleteIcon className="w-4 h-4" /></button>
                             </div>
                         </div>
                     );

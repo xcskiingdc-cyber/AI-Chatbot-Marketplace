@@ -1,10 +1,11 @@
 
 
 
+
 import React, { useContext, useState, useRef, useEffect, useMemo } from 'react';
 import type { AppView, User, Notification } from '../types';
 import { AuthContext } from '../context/AuthContext';
-import { HomeIcon, PlusIcon, MessageIcon, UserIcon, LogoutIcon, BellIcon, SettingsIcon, MenuIcon, CloseIcon, ShieldCheckIcon, TicketIcon, BookIcon } from './Icons';
+import { HomeIcon, PlusIcon, MessageIcon, UserIcon, LogoutIcon, BellIcon, SettingsIcon, MenuIcon, CloseIcon, ShieldCheckIcon, TicketIcon, BookIcon, SystemMonitorIcon } from './Icons';
 import Avatar from './Avatar';
 
 interface NavButtonProps {
@@ -96,6 +97,9 @@ const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => 
           )}
            {auth.currentUser.role === 'Admin' && (
             <NavButton onClick={() => navAction({ type: 'AI_API_SETTINGS' })} icon={<SettingsIcon className="h-5 w-5" />} text="AI API Settings" />
+          )}
+          {auth.currentUser.role === 'Admin' && (
+            <NavButton onClick={() => navAction({ type: 'SYSTEM_MONITOR' })} icon={<SystemMonitorIcon className="h-5 w-5" />} text="System Monitor" />
           )}
         </>
       )}

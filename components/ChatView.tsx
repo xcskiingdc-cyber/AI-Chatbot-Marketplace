@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useRef, useCallback, useContext, useMemo } from 'react';
 import { Character, ChatMessage, ChatSettings, ApiConnection } from '../types';
 import { getChatResponseStream, getTextToSpeech, generateChatResponseWithStats } from '../services/aiService';
@@ -15,7 +13,7 @@ interface ChatViewProps {
   chatHistory: ChatMessage[];
   updateChatHistory: (characterId: string, history: ChatMessage[]) => void;
   onReportMessage: (message: ChatMessage) => void;
-  activeConnection: ApiConnection;
+  onCharacterSelect: (character: Character) => void;
 }
 
 const SkeletonMessage: React.FC = () => (
@@ -31,16 +29,7 @@ const SkeletonMessage: React.FC = () => (
     </div>
 );
 
-const generateStatsString = (character: Character, stats: Record<string, number> | null): string => {
-    if (!character.statsVisible || !stats || !character.stats.length) {
-        return '';
-    }
-    return character.stats
-        .map(stat => `${stat.name}=${stats[stat.id] ?? stat.initialValue}`)
-        .join(', ');
-};
-
-const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatHistory, onReportMessage, activeConnection }) => {
+const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatHistory, onReportMessage, onCharacterSelect }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSettingsOpen, setSettingsOpen] = useState(false);
@@ -52,6 +41,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const auth = useContext(AuthContext);
+  const { findConnectionForModel, apiConnections } = auth || {};
 
   const userChatSettings = useMemo(() => {
     const defaultSettings: ChatSettings = {
@@ -65,12 +55,13 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
 
     const finalSettings = { ...defaultSettings, ...savedSettings };
     
-    if (auth.currentUser.userType === 'Free' && finalSettings.model === 'gemini-2.5-pro') {
-        finalSettings.model = 'gemini-2.5-flash';
+    if (auth.currentUser.userType === 'Free' && finalSettings.model.includes('pro')) {
+        const fallbackModel = apiConnections?.flatMap(c => c.models).find(m => m.includes('flash') && !m.includes('tts'));
+        finalSettings.model = fallbackModel || character.model;
     }
 
     return finalSettings;
-  }, [auth?.currentUser, auth?.chatSettings, character.id, character.model]);
+  }, [auth?.currentUser, auth?.chatSettings, character.id, character.model, apiConnections]);
   
   const displayedHistory = useMemo(() => {
       if (chatHistory.length > 0) {
@@ -93,7 +84,14 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   
   const handleSend = useCallback(async () => {
     const textToSend = input.trim();
-    if (!textToSend || isLoading || !auth?.currentUser || !auth.aiContextSettings) return;
+    if (!textToSend || isLoading || !auth?.currentUser || !auth.aiContextSettings || !findConnectionForModel) return;
+    
+    const connection = findConnectionForModel(userChatSettings.model);
+    if (!connection) {
+        const errorMessage: ChatMessage = { id: crypto.randomUUID(), sender: 'bot', text: `Error: Could not find an API connection for the selected model "${userChatSettings.model}". Please select a different model in settings or ask an administrator to configure it.`, timestamp: Date.now() };
+        updateChatHistory(character.id, [...displayedHistory, errorMessage]);
+        return;
+    }
 
     setIsLoading(true);
     setInput('');
@@ -110,44 +108,22 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
 
     const historyForApi = newHistory.filter(msg => msg.id !== 'greeting-0');
 
-    // If character has no stats, use the simple, streaming method to preserve UX.
-    if (!character.stats || character.stats.length === 0) {
-        const botMessage: ChatMessage = { id: crypto.randomUUID(), sender: 'bot', text: '', timestamp: Date.now() };
-        // Show a placeholder while waiting for the first chunk
-        updateChatHistory(character.id, [...newHistory, botMessage]);
-
-        try {
-            const stream = getChatResponseStream(character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, null, activeConnection);
-            let fullText = '';
-            for await (const chunk of stream) {
-                fullText += chunk;
-                updateChatHistory(character.id, [...newHistory, { ...botMessage, text: fullText }]);
-            }
-        } catch (e) {
-            console.error("Error streaming response:", e);
-            updateChatHistory(character.id, [...newHistory, { ...botMessage, text: `Error streaming response: ${e instanceof Error ? e.message : String(e)}` }]);
-        } finally {
-            setIsLoading(false);
-        }
-        return;
-    }
-    
-    // --- Stat System Logic (New combined, non-streaming call to prevent rate limits) ---
+    // Always use the stats-aware response generation to enable automatic narrative state.
     try {
         let statsForUpdate = auth.chatStats?.[auth.currentUser.id]?.[character.id];
-        if (!statsForUpdate) {
+        if (!statsForUpdate && character.stats.length > 0) {
             statsForUpdate = {};
             character.stats.forEach(stat => {
                 statsForUpdate[stat.id] = stat.initialValue;
             });
         }
 
-        // Single API call to get response and stat changes
-        const { statChanges, responseText } = await generateChatResponseWithStats(
-            character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, statsForUpdate, activeConnection
+        const narrativeState = auth.narrativeStates?.[auth.currentUser.id]?.[character.id] || {};
+
+        const { statChanges, responseText, newNarrativeState } = await generateChatResponseWithStats(
+            character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, statsForUpdate, narrativeState, connection
         );
         
-        // Handle API errors gracefully
         if (responseText.startsWith("Error:")) {
             const errorMessage: ChatMessage = { id: crypto.randomUUID(), sender: 'bot', text: responseText, timestamp: Date.now() };
             updateChatHistory(character.id, [...newHistory, errorMessage]);
@@ -155,7 +131,6 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
             return;
         }
 
-        // Apply stat updates
         let finalStats = { ...statsForUpdate };
         if (statChanges && statChanges.length > 0) {
           statChanges.forEach(update => {
@@ -166,17 +141,18 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
               finalStats[update.statId] = newValue;
             }
           });
+          auth.updateChatStats(character.id, finalStats);
         }
         
-        auth.updateChatStats(character.id, finalStats);
-        const statsString = generateStatsString(character, finalStats);
+        if (newNarrativeState && auth.updateNarrativeState) {
+            auth.updateNarrativeState(character.id, newNarrativeState);
+        }
 
         const botMessage: ChatMessage = { 
           id: crypto.randomUUID(), 
           sender: 'bot', 
           text: responseText, 
           timestamp: Date.now(),
-          statsSnapshot: statsString
         };
         updateChatHistory(character.id, [...newHistory, botMessage]);
 
@@ -194,7 +170,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
         setIsLoading(false);
     }
 
-  }, [input, isLoading, auth, character, updateChatHistory, userChatSettings, displayedHistory, activeConnection]);
+  }, [input, isLoading, auth, character, updateChatHistory, userChatSettings, displayedHistory, findConnectionForModel]);
   
   const stopCurrentTts = useCallback(() => {
     if (activeTtsSourceRef.current) {
@@ -205,6 +181,11 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
     setCurrentlyPlayingTtsId(null);
   }, []);
 
+  const ttsConnection = useMemo(() => {
+    if (!findConnectionForModel) return null;
+    return findConnectionForModel('gemini-2.5-flash-preview-tts');
+  }, [findConnectionForModel]);
+
 
   useEffect(() => {
     return () => {
@@ -213,6 +194,10 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   }, [stopCurrentTts]);
   
   const playTTS = useCallback(async (text: string, messageId: string) => {
+    if (!ttsConnection) {
+        alert("Text-to-speech is not available. No suitable API connection found.");
+        return;
+    }
     if (activeTtsSourceRef.current && messageId === currentlyPlayingTtsId) {
         stopCurrentTts();
         return;
@@ -258,7 +243,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
 
     setIsTtsLoading(prev => new Set(prev).add(messageId));
     try {
-        const base64Audio = await getTextToSpeech(text, userChatSettings.ttsVoice, activeConnection);
+        const base64Audio = await getTextToSpeech(text, userChatSettings.ttsVoice, ttsConnection);
         if (base64Audio) {
             setTtsAudioCache(prevCache => new Map(prevCache).set(messageId, base64Audio));
             await playAudio(base64Audio);
@@ -272,7 +257,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
             return next;
         });
     }
-  }, [userChatSettings.ttsVoice, ttsAudioCache, currentlyPlayingTtsId, stopCurrentTts, activeConnection]);
+  }, [userChatSettings.ttsVoice, ttsAudioCache, currentlyPlayingTtsId, stopCurrentTts, ttsConnection]);
   
   const handleUpdateMessage = (messageId: string, newText: string) => {
     const updatedHistory = chatHistory.map(msg => 
@@ -295,7 +280,14 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   }
 
   const handleRetry = useCallback(async (messageId: string) => {
-    if (isLoading || !auth?.currentUser || !auth.aiContextSettings) return;
+    if (isLoading || !auth?.currentUser || !auth.aiContextSettings || !findConnectionForModel) return;
+
+    const connection = findConnectionForModel(userChatSettings.model);
+    if (!connection) {
+        // This is unlikely if a previous message was sent, but good to have a guard.
+        console.error(`Retry failed: Could not find connection for model ${userChatSettings.model}`);
+        return;
+    }
 
     const messageIndex = displayedHistory.findIndex(msg => msg.id === messageId);
     if (messageIndex === -1 || displayedHistory[messageIndex].sender !== 'bot') {
@@ -303,9 +295,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
         return;
     }
 
-    // History up to the point before the bot message we want to regenerate.
     const historyForRetry = displayedHistory.slice(0, messageIndex);
-
     const lastMessage = historyForRetry[historyForRetry.length - 1];
     if (lastMessage?.sender !== 'user') {
         console.warn("Cannot retry, the preceding message is not from the user.");
@@ -314,7 +304,6 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
 
     setIsLoading(true);
 
-    // Clean up TTS cache for the message being replaced and any after it.
     const idsToDelete = displayedHistory.slice(messageIndex).map(msg => msg.id);
     setTtsAudioCache(prevCache => {
         const newCache = new Map(prevCache);
@@ -322,45 +311,23 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
         return newCache;
     });
     
-    // Update UI to show only the history up to the point of retry.
     updateChatHistory(character.id, historyForRetry);
     
-    // Replicate the logic from handleSend but using the constructed history.
     const historyForApi = historyForRetry.filter(msg => msg.id !== 'greeting-0');
 
-    // Streaming path (no stats)
-    if (!character.stats || character.stats.length === 0) {
-        const botMessage: ChatMessage = { id: crypto.randomUUID(), sender: 'bot', text: '', timestamp: Date.now() };
-        updateChatHistory(character.id, [...historyForRetry, botMessage]); // Show placeholder
-
-        try {
-            const stream = getChatResponseStream(character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, null, activeConnection);
-            let fullText = '';
-            for await (const chunk of stream) {
-                fullText += chunk;
-                updateChatHistory(character.id, [...historyForRetry, { ...botMessage, text: fullText }]);
-            }
-        } catch (e) {
-            console.error("Error streaming response during retry:", e);
-            updateChatHistory(character.id, [...historyForRetry, { ...botMessage, text: `Error streaming response: ${e instanceof Error ? e.message : String(e)}` }]);
-        } finally {
-            setIsLoading(false);
-        }
-        return;
-    }
-
-    // Non-streaming path (with stats)
     try {
         let statsForUpdate = auth.chatStats?.[auth.currentUser.id]?.[character.id];
-        if (!statsForUpdate) {
+        if (!statsForUpdate && character.stats.length > 0) {
             statsForUpdate = {};
             character.stats.forEach(stat => {
                 statsForUpdate[stat.id] = stat.initialValue;
             });
         }
 
-        const { statChanges, responseText } = await generateChatResponseWithStats(
-            character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, statsForUpdate, activeConnection
+        const narrativeState = auth.narrativeStates?.[auth.currentUser.id]?.[character.id] || {};
+
+        const { statChanges, responseText, newNarrativeState } = await generateChatResponseWithStats(
+            character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, statsForUpdate, narrativeState, connection
         );
 
         if (responseText.startsWith("Error:")) {
@@ -380,17 +347,18 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
               finalStats[update.statId] = newValue;
             }
           });
+          auth.updateChatStats(character.id, finalStats);
+        }
+
+        if (newNarrativeState && auth.updateNarrativeState) {
+            auth.updateNarrativeState(character.id, newNarrativeState);
         }
         
-        auth.updateChatStats(character.id, finalStats);
-        const statsString = generateStatsString(character, finalStats);
-
         const botMessage: ChatMessage = { 
           id: crypto.randomUUID(), 
           sender: 'bot', 
           text: responseText, 
           timestamp: Date.now(),
-          statsSnapshot: statsString
         };
         updateChatHistory(character.id, [...historyForRetry, botMessage]);
 
@@ -407,23 +375,44 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
     } finally {
         setIsLoading(false);
     }
-  }, [isLoading, auth, character, updateChatHistory, userChatSettings, displayedHistory, activeConnection]);
+  }, [isLoading, auth, character, updateChatHistory, userChatSettings, displayedHistory, findConnectionForModel]);
 
   const handleSaveSettings = (settings: ChatSettings) => {
     auth?.updateChatSettings(character.id, settings);
     setSettingsOpen(false);
   }
+  
+  const narrativeState = auth?.currentUser ? auth.narrativeStates?.[auth.currentUser.id]?.[character.id] || {} : {};
+
+  const summaryConnection = useMemo(() => {
+    if (!auth?.findConnectionForModel) return null;
+    return auth.findConnectionForModel('gemini-2.5-flash');
+  }, [auth]);
+
+  const characterStats = useMemo(() => {
+    if (!auth?.currentUser?.id) return {};
+    const stats = auth.chatStats?.[auth.currentUser.id]?.[character.id];
+    if (stats) return stats;
+    
+    // If no stats are saved yet, create from initial values
+    const initialStats: Record<string, number> = {};
+    character.stats.forEach(stat => {
+        initialStats[stat.id] = stat.initialValue;
+    });
+    return initialStats;
+  }, [auth?.currentUser?.id, auth?.chatStats, character.id, character.stats]);
+
 
   return (
     <div className="flex flex-col h-full bg-primary">
       <div className="p-4 border-b border-border flex items-center justify-between gap-4 flex-shrink-0">
-        <div className="flex items-center gap-4 overflow-hidden">
-            <Avatar imageId={character.avatarUrl} alt={character.name} className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover flex-shrink-0" />
+        <button onClick={() => onCharacterSelect(character)} className="flex items-center gap-4 overflow-hidden text-left group">
+            <Avatar imageId={character.avatarUrl} alt={character.name} className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover flex-shrink-0 transition-transform group-hover:scale-105" />
             <div className="overflow-hidden">
-              <h2 className="text-lg sm:text-xl font-bold truncate text-text-primary">{character.name}</h2>
+              <h2 className="text-lg sm:text-xl font-bold truncate text-text-primary group-hover:text-accent-secondary transition-colors">{character.name}</h2>
               <p className="text-xs sm:text-sm text-text-secondary truncate">{character.situation}</p>
             </div>
-        </div>
+        </button>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {displayedHistory.map((msg) => (
@@ -490,8 +479,12 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
                 setSettingsOpen(false);
             }}
             userType={auth.currentUser.userType}
-            // FIX: Pass activeConnection to the modal for API calls
-            activeConnection={activeConnection}
+            apiConnections={apiConnections || []}
+            ttsConnection={ttsConnection}
+            character={character}
+            narrativeState={narrativeState}
+            summaryConnection={summaryConnection}
+            characterStats={characterStats}
         />
        )}
     </div>

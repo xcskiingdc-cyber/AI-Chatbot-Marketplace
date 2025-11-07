@@ -3,11 +3,17 @@
 
 body {
     font-family: 'Lato', sans-serif;
-    /* Base colors are now applied via Tailwind classes on the body tag in index.html */
+    /* Add a subtle noise texture for a warmer, less digital feel */
+    background-color: #242221; /* Fallback color */
+    background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 0);
+    background-size: 10px 10px;
+    letter-spacing: 0.01em;
+    line-height: 1.6;
 }
 
 h1, h2, h3, h4, h5, h6 {
     font-family: 'Playfair Display', serif;
+    letter-spacing: 0.025em; /* A slight tracking for sophistication */
 }
 
 /* Custom scrollbar for a better look */

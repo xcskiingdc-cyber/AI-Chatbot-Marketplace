@@ -81,7 +81,7 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
 
   return (
     <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-40 p-4">
-      <div className="bg-primary rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative border border-border">
+      <div className="bg-gradient-to-b from-primary to-secondary rounded-lg shadow-soft-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto relative border border-border">
         <div className="sticky top-0 bg-primary z-10 px-6 py-4 border-b border-border flex justify-between items-center">
             <h2 className="text-2xl font-bold text-text-primary">Edit Profile</h2>
             <button onClick={onCancel} className="text-text-secondary hover:text-text-primary">

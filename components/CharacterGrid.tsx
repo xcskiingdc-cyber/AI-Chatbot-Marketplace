@@ -1,7 +1,9 @@
 
+
+
 import React from 'react';
 import type { Character, AppView, User } from '../types';
-import { EditIcon, HeartIcon, DeleteIcon, ThumbsUpIcon } from './Icons';
+import { EditIcon, HeartIcon, DeleteIcon, ThumbsUpIcon, FlameIcon } from './Icons';
 import Avatar from './Avatar';
 
 interface CharacterGridProps {
@@ -18,7 +20,7 @@ interface CharacterGridProps {
 }
 
 const SkeletonCharacterCard = () => (
-    <div className="relative group bg-secondary rounded-lg overflow-hidden shadow-lg">
+    <div className="relative group bg-secondary rounded-lg overflow-hidden shadow-soft-lg">
         <div className="w-full aspect-[3/4] bg-tertiary animate-pulse" />
         <div className="absolute bottom-0 left-0 p-3 w-full">
             <div className="h-4 bg-tertiary rounded animate-pulse w-3/4 mb-2" />
@@ -68,7 +70,7 @@ const CharacterGrid: React.FC<CharacterGridProps> = ({
                 return (
                   <div 
                     key={character.id} 
-                    className="relative group bg-secondary rounded-lg overflow-hidden shadow-lg transform hover:-translate-y-1 transition-all duration-300"
+                    className="relative group bg-gradient-to-br from-secondary to-primary rounded-lg overflow-hidden shadow-soft-lg transform hover:-translate-y-1 transition-all duration-300 border border-tertiary/50"
                   >
                     <div onClick={() => onCharacterClick(character)} className="cursor-pointer">
                         <Avatar 
@@ -82,7 +84,7 @@ const CharacterGrid: React.FC<CharacterGridProps> = ({
                     </div>
 
                     {/* Top-left corner items */}
-                    <div className="absolute top-2 left-2 flex flex-col items-start gap-2">
+                    <div className="absolute top-2 left-2 flex flex-col items-start gap-2 z-10">
                         {showControls && (
                             <div className="flex flex-col gap-1 items-start">
                                 <span className={`px-2 py-1 text-xs font-bold text-white rounded-md ${character.isPublic ? 'bg-success/80' : 'bg-gray-600/80'}`}>
@@ -95,23 +97,35 @@ const CharacterGrid: React.FC<CharacterGridProps> = ({
                                 )}
                             </div>
                         )}
-                        {currentUser && (
-                            <button
-                                onClick={(e) => { e.stopPropagation(); toggleFavorite?.(character.id); }}
-                                className="p-2 bg-black/60 rounded-full text-white opacity-80 hover:opacity-100 transition-opacity"
-                                aria-label="Favorite Character"
-                            >
-                                <HeartIcon className={`h-5 w-5 ${isFavorite ? 'text-accent-primary fill-current' : 'text-white'}`} />
-                            </button>
+                        {/* Always visible icons */}
+                        {character.isBeyondTheHaven && (
+                            <div className="p-1.5 bg-black/60 rounded-full" title="Beyond the Haven (18+)">
+                                <FlameIcon className="h-5 w-5 text-accent-primary" />
+                            </div>
                         )}
+
+                        {/* Hover-visible icons */}
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                            {currentUser && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); toggleFavorite?.(character.id); }}
+                                    className="p-1.5 bg-black/60 rounded-full text-white hover:text-accent-primary transition-colors"
+                                    aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
+                                    title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+                                >
+                                    <HeartIcon className={`h-5 w-5 ${isFavorite ? 'fill-current text-accent-primary' : 'text-white'}`} />
+                                </button>
+                            )}
+                        </div>
                     </div>
+
 
                     {/* Top-right corner controls */}
                     {showControls && (
-                        <div className="absolute top-2 right-2 flex flex-col gap-2">
+                        <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-10">
                             <button
                                 onClick={(e) => { e.stopPropagation(); setView({ type: 'EDIT_CHARACTER', characterId: character.id }); }}
-                                className="p-2 bg-black/60 rounded-full text-white opacity-80 hover:opacity-100 transition-opacity"
+                                className="p-2 bg-black/60 rounded-full text-white hover:opacity-100 transition-opacity"
                                 aria-label="Edit Character"
                             >
                                 <EditIcon className="h-5 w-5" />
@@ -119,7 +133,7 @@ const CharacterGrid: React.FC<CharacterGridProps> = ({
                             {onDelete && (
                                  <button
                                     onClick={(e) => { e.stopPropagation(); onDelete(character.id); }}
-                                    className="p-2 bg-red-800/80 rounded-full text-white opacity-80 hover:opacity-100 transition-opacity"
+                                    className="p-2 bg-red-800/80 rounded-full text-white hover:opacity-100 transition-opacity"
                                     aria-label="Delete Character"
                                 >
                                     <DeleteIcon className="h-5 w-5" />

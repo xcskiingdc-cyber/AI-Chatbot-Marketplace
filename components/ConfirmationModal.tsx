@@ -13,7 +13,7 @@ interface ConfirmationModalProps {
 const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ title, message, onConfirm, onCancel, confirmText = "Confirm", cancelText = "Cancel" }) => {
   return (
     <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-      <div className="bg-primary rounded-lg shadow-xl w-full max-w-md border border-border">
+      <div className="bg-secondary rounded-lg shadow-soft-lg w-full max-w-md border border-border">
         <div className="p-8 text-center">
           <h2 className="text-2xl font-bold text-text-primary mb-4">{title}</h2>
           <p className="text-text-secondary mb-6">{message}</p>

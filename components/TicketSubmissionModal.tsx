@@ -28,7 +28,7 @@ const TicketSubmissionModal: React.FC<TicketSubmissionModalProps> = ({ user, onC
   
   return (
     <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-40 p-4">
-      <div className="bg-primary rounded-lg shadow-xl w-full max-w-2xl relative border border-border">
+      <div className="bg-gradient-to-b from-primary to-secondary rounded-lg shadow-soft-lg w-full max-w-2xl relative border border-border">
         <div className="p-4 border-b border-border flex justify-between items-center">
           <h2 className="text-xl font-bold text-text-primary">Submit a Support Ticket</h2>
           <button onClick={onClose} className="text-text-secondary hover:text-text-primary">

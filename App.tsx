@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 import React, { useState, useCallback, useMemo, useContext, useEffect } from 'react';
 import useLocalStorage from './hooks/useLocalStorage';
 import type { Character, ChatMessage, AppView, UserProfile, User, Report, Ticket } from './types';
@@ -31,6 +24,7 @@ import CategoryView from './components/CategoryView';
 import ThreadView from './components/ThreadView';
 import CreateThreadForm from './components/CreateThreadForm';
 import AiApiSettingsView from './components/AiApiSettingsView';
+import SystemMonitorView from './components/SystemMonitorView';
 
 
 const MainApp: React.FC = () => {
@@ -60,10 +54,8 @@ const MainApp: React.FC = () => {
   if (!auth) {
     throw new Error("AuthContext not found");
   }
-  const { currentUser, characters, chatHistories, saveCharacter, updateChatHistory, updateUserProfile, toggleFavorite, deleteChatHistory, likeCharacter, addComment, followUser, markNotificationsAsRead, findUserById, submitReport, submitTicket, activeApiConnectionId, apiConnections } = auth;
+  const { currentUser, characters, chatHistories, saveCharacter, updateChatHistory, updateUserProfile, toggleFavorite, deleteChatHistory, likeCharacter, addComment, followUser, markNotificationsAsRead, findUserById, submitReport, submitTicket, findConnectionForModel } = auth;
   
-  const activeConnection = useMemo(() => apiConnections.find(c => c.id === activeApiConnectionId), [apiConnections, activeApiConnectionId]);
-
 
   useEffect(() => {
     // This simulates an initial data fetch. In a real app with an API,
@@ -113,7 +105,7 @@ const MainApp: React.FC = () => {
   }
 
   const navigate = (newView: AppView) => {
-    const protectedViews: AppView['type'][] = ['PROFILE', 'RECENT_CHATS', 'CREATE_CHARACTER', 'NOTIFICATIONS', 'ADMIN_CONSOLE', 'MODERATOR_CONSOLE', 'SUPPORT_TICKET', 'CREATE_THREAD', 'AI_API_SETTINGS'];
+    const protectedViews: AppView['type'][] = ['PROFILE', 'RECENT_CHATS', 'CREATE_CHARACTER', 'NOTIFICATIONS', 'ADMIN_CONSOLE', 'MODERATOR_CONSOLE', 'SUPPORT_TICKET', 'CREATE_THREAD', 'AI_API_SETTINGS', 'SYSTEM_MONITOR'];
     
     if (protectedViews.includes(newView.type) && !currentUser) {
         setLoginModalOpen(true);
@@ -125,7 +117,7 @@ const MainApp: React.FC = () => {
         return;
     }
 
-    if (newView.type === 'AI_API_SETTINGS' && currentUser?.role !== 'Admin') {
+    if ((newView.type === 'AI_API_SETTINGS' || newView.type === 'SYSTEM_MONITOR') && currentUser?.role !== 'Admin') {
         setView({ type: 'HOME' });
         return;
     }
@@ -259,11 +251,11 @@ const MainApp: React.FC = () => {
             setView({ type: 'HOME' });
             return null;
         }
-        if (!activeConnection) {
-            return <div className="p-8 text-center text-red-400">Error: No active AI API connection is configured. An administrator must configure one in the AI API Settings.</div>
+        if (!findConnectionForModel?.(currentCharacterForView.model)) {
+            return <div className="p-8 text-center text-red-400">Error: The AI model "{currentCharacterForView.model}" for this character is not available. An administrator may need to configure it in the AI API Settings.</div>
         }
         const history = (currentUser && chatHistories[currentUser.id]?.[currentCharacterForView.id]) || [];
-        return <ChatView character={currentCharacterForView} chatHistory={history} updateChatHistory={updateChatHistory} onReportMessage={(msg) => setReportModalInfo({ entityType: 'message', entityId: msg.id, contentSnapshot: msg.text, entityCreatorId: currentCharacterForView.creatorId })} activeConnection={activeConnection} />;
+        return <ChatView character={currentCharacterForView} chatHistory={history} updateChatHistory={updateChatHistory} onReportMessage={(msg) => setReportModalInfo({ entityType: 'message', entityId: msg.id, contentSnapshot: msg.text, entityCreatorId: currentCharacterForView.creatorId })} onCharacterSelect={setSelectedCharacter} />;
       case 'RECENT_CHATS':
         return currentUser ? <RecentChatsView characters={characters} userChatHistories={chatHistories[currentUser.id] || {}} setView={setView} deleteChatHistory={deleteChatHistory} /> : null;
       case 'PROFILE':
@@ -274,6 +266,8 @@ const MainApp: React.FC = () => {
         return (currentUser?.role === 'Admin' || currentUser?.role === 'Assistant Admin') ? <AdminConsoleView setView={navigate} setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator}/> : <p>Access Denied</p>;
       case 'AI_API_SETTINGS':
         return (currentUser?.role === 'Admin') ? <AiApiSettingsView /> : <p>Access Denied</p>;
+      case 'SYSTEM_MONITOR':
+        return (currentUser?.role === 'Admin') ? <SystemMonitorView /> : <p>Access Denied</p>;
       case 'MODERATOR_CONSOLE':
         return ['Admin', 'Assistant Admin', 'Moderator'].includes(currentUser?.role || '') ? <ModeratorConsoleView setView={navigate} initialTab={modConsoleInitialTab} preselectedUser={preselectedDMUser} setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator} /> : <p>Access Denied</p>;
       case 'FORUM_HOME':
@@ -360,7 +354,7 @@ const MainApp: React.FC = () => {
     }
   };
   
-  const isConsoleView = view.type === 'ADMIN_CONSOLE' || view.type === 'MODERATOR_CONSOLE' || view.type === 'AI_API_SETTINGS';
+  const isConsoleView = view.type === 'ADMIN_CONSOLE' || view.type === 'MODERATOR_CONSOLE' || view.type === 'AI_API_SETTINGS' || view.type === 'SYSTEM_MONITOR';
 
   return (
     <div className="flex flex-col h-screen font-sans bg-primary text-text-primary">

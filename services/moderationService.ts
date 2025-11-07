@@ -1,6 +1,3 @@
-
-
-
 import { analyzeContentWithGemini } from './aiService';
 import { fileToBase64 } from '../utils/imageUtils';
 import { ApiConnection } from '../types';
@@ -17,12 +14,25 @@ interface ModerationResult {
     explanation?: string | null;
 }
 
+const extractJson = (text: string): string => {
+    // Regular expression to find a JSON block within triple backticks
+    const jsonRegex = /```(json)?\s*([\s\S]*?)\s*```/;
+    const match = text.match(jsonRegex);
+
+    // If a match is found, return the captured JSON string, otherwise return the original text
+    if (match && match[2]) {
+        return match[2];
+    }
+    return text;
+};
+
 export const scanText = async (text: string, activeConnection: ApiConnection): Promise<ModerationResult | null> => {
     if (!text.trim()) return null;
 
     try {
         const resultJson = await analyzeContentWithGemini(TEXT_MODERATION_PROMPT, { text }, activeConnection);
-        const result = JSON.parse(resultJson);
+        const cleanedJson = extractJson(resultJson);
+        const result = JSON.parse(cleanedJson);
         return result.isViolation ? result : null;
     } catch (error) {
         console.error("Failed to moderate text:", error);
@@ -41,7 +51,8 @@ export const scanImage = async (imageBlob: Blob, activeConnection: ApiConnection
             imageBase64: base64String, 
             imageMimeType: imageBlob.type 
         }, activeConnection);
-        const result = JSON.parse(resultJson);
+        const cleanedJson = extractJson(resultJson);
+        const result = JSON.parse(cleanedJson);
         return result.isViolation ? result : null;
     } catch (error) {
         console.error("Failed to moderate image:", error);

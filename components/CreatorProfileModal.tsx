@@ -24,7 +24,7 @@ const CreatorProfileModal: React.FC<CreatorProfileModalProps> = ({ creator, curr
 
     return (
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-40 p-4">
-            <div className="bg-primary rounded-lg shadow-xl w-full max-w-sm flex flex-col relative border border-border max-h-[90vh]">
+            <div className="bg-gradient-to-b from-primary to-secondary rounded-lg shadow-soft-lg w-full max-w-sm flex flex-col relative border border-border max-h-[90vh]">
                 <button onClick={onClose} className="absolute top-3 right-3 text-text-secondary hover:text-text-primary z-10">
                     <CloseIcon className="w-6 h-6" />
                 </button>

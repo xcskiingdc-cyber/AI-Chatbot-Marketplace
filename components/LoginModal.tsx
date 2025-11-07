@@ -41,7 +41,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-40 p-4">
-      <div className="bg-primary rounded-lg shadow-xl w-full max-w-md relative border border-border">
+      <div className="bg-gradient-to-b from-primary to-secondary rounded-lg shadow-soft-lg w-full max-w-md relative border border-border">
         <button onClick={onClose} className="absolute top-4 right-4 text-text-secondary hover:text-text-primary">
           <CloseIcon className="w-6 h-6" />
         </button>

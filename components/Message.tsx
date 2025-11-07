@@ -18,13 +18,13 @@ interface MessageProps {
 }
 
 const formatMessageText = (text: string): React.ReactNode => {
-    const parts = text.split(/(\*.*?\*)/g);
+    const parts = text.split(/(\*\*.*?\*\*|\*.*?\*)/g);
     return parts.map((part, index) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+            return <strong key={index}>{part.slice(2, -2)}</strong>;
+        }
         if (part.startsWith('*') && part.endsWith('*')) {
             return <em key={index}>{part.slice(1, -1)}</em>;
-        }
-        if (part) {
-            return <strong key={index}>{part}</strong>;
         }
         return part;
     });
@@ -105,14 +105,7 @@ const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, o
                       </div>
                   </div>
               ) : (
-                  <>
-                    <p className={`whitespace-pre-wrap mt-1 ${isBot ? 'text-text-primary' : 'text-white'}`}>{formatMessageText(message.text)}</p>
-                    {isBot && message.statsSnapshot && (
-                        <p className="mt-3 pt-3 border-t border-border/50 text-xs text-text-secondary font-mono">
-                            {message.statsSnapshot}
-                        </p>
-                    )}
-                  </>
+                  <div className={`whitespace-pre-wrap mt-1 ${isBot ? 'text-text-primary' : 'text-white'}`}>{formatMessageText(message.text)}</div>
               )}
           </div>
       </div>

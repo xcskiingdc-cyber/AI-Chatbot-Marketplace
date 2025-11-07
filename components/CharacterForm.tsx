@@ -1,8 +1,5 @@
 
-
-
-
-import React, { useState, useEffect, useContext, useRef } from 'react';
+import React, { useState, useEffect, useContext, useRef, useMemo } from 'react';
 import { Character, CharacterStat, StatRule, ApiConnection } from '../types';
 import { saveImage } from '../services/dbService';
 import { UploadIcon, DeleteIcon, QuestionMarkCircleIcon, SpinnerIcon, RefreshIcon, CloseIcon, PlusIcon } from './Icons';
@@ -26,14 +23,22 @@ const categories = ["Fantasy", "Sci-Fi", "Romance", "Horror", "Adventure", "Myst
 
 const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existingCharacter, isUserAdult = false }) => {
   const auth = useContext(AuthContext);
-  const activeConnection = auth?.apiConnections.find(c => c.id === auth.activeApiConnectionId);
-  const availableModels = activeConnection?.models || [];
+  const { apiConnections = [], findConnectionForModel } = auth || {};
+
+  const getDefaultModel = () => {
+    if (apiConnections.length > 0 && apiConnections[0].models.length > 0) {
+      return apiConnections[0].models[0];
+    }
+    return '';
+  };
   
+  const modelExists = (modelName: string) => apiConnections.some(c => c.models.includes(modelName));
+
   const [character, setCharacter] = useState(
     existingCharacter
       ? {
           ...existingCharacter,
-          model: availableModels.includes(existingCharacter.model) ? existingCharacter.model : (availableModels[0] || '')
+          model: modelExists(existingCharacter.model) ? existingCharacter.model : getDefaultModel()
         }
       : {
           id: crypto.randomUUID(),
@@ -47,7 +52,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
           feeling: '',
           appearance: '',
           isBeyondTheHaven: false,
-          model: availableModels[0] || '',
+          model: getDefaultModel(),
           greeting: '',
           isPublic: true,
           categories: [],
@@ -238,8 +243,11 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
   };
 
   const handleGenerateImage = async () => {
-    if (!activeConnection) {
-        setGenerationError("No active AI API connection found. Please ask an administrator to configure one.");
+    const imageGenerationModel = 'imagen-4.0-generate-001';
+    const imageConnection = findConnectionForModel ? findConnectionForModel(imageGenerationModel) : null;
+
+    if (!imageConnection) {
+        setGenerationError("No API connection with an image generation model (e.g., imagen-4.0-generate-001) found.");
         return;
     }
 
@@ -248,7 +256,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
     setGenerationError(null);
     try {
         const prompt = constructImagePrompt();
-        const imageBase64 = await generateCharacterImage(prompt, activeConnection); 
+        const imageBase64 = await generateCharacterImage(prompt, imageConnection); 
         if (imageBase64) {
             setGeneratedImage(imageBase64);
         } else {
@@ -342,7 +350,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
   };
   
 
-  const formFieldClasses = "w-full p-2 bg-tertiary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-secondary text-text-primary";
+  const formFieldClasses = "w-full p-2 bg-tertiary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-secondary text-text-primary transition-shadow duration-200 focus:shadow-inner focus:bg-primary";
   const labelClasses = "block text-sm font-medium text-text-secondary mb-1";
   const defaultAvatar = DEFAULT_CHARACTER_AVATAR;
 
@@ -546,8 +554,12 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
             <div>
               <label htmlFor="model" className={labelClasses}>AI Model</label>
               <select id="model" name="model" value={character.model} onChange={handleChange} className={formFieldClasses}>
-                {availableModels.map(modelName => (
-                  <option key={modelName} value={modelName}>{modelName}</option>
+                {apiConnections.map(conn => (
+                  <optgroup key={conn.id} label={`${conn.name} (${conn.provider})`}>
+                    {conn.models.filter(m => !m.includes('tts')).map(modelName => (
+                      <option key={modelName} value={modelName}>{modelName}</option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>
@@ -638,7 +650,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
             <button
                 type="button"
                 onClick={handleGenerateImage}
-                disabled={isGeneratingImage || !character.appearance.trim() || !activeConnection}
+                disabled={isGeneratingImage || !character.appearance.trim() || !findConnectionForModel || !findConnectionForModel('imagen-4.0-generate-001')}
                 className="w-full px-4 py-2 bg-accent-secondary hover:bg-accent-secondary-hover text-white rounded-md transition-colors font-semibold disabled:bg-hover disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
                 {isGeneratingImage ? (
@@ -650,8 +662,8 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
                     'Generate Character Image'
                 )}
             </button>
-            {!activeConnection && (
-                <p className="text-xs text-yellow-400 text-center mt-2">Image generation is disabled. No active AI API connection found.</p>
+            {(!findConnectionForModel || !findConnectionForModel('imagen-4.0-generate-001')) && (
+                <p className="text-xs text-yellow-400 text-center mt-2">Image generation is disabled. No connection with an image model is configured.</p>
             )}
             
             {generationError && (

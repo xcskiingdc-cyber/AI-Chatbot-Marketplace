@@ -1,7 +1,4 @@
 
-
-
-
 export const TTSVoices = {
   Kore: "Female - Calm",
   Zephyr: "Female - Warm",
@@ -264,6 +261,7 @@ export interface ApiConnection {
   apiKey: string;
   baseUrl?: string;
   models: string[]; 
+  isActive: boolean;
 }
 
 
@@ -279,6 +277,7 @@ export type AppView =
   | { type: 'ADMIN_CONSOLE' }
   | { type: 'MODERATOR_CONSOLE' }
   | { type: 'AI_API_SETTINGS' }
+  | { type: 'SYSTEM_MONITOR' }
   | { type: 'FORUM_HOME' }
   | { type: 'FORUM_CATEGORY', categoryId: string }
   | { type: 'FORUM_THREAD', threadId: string }

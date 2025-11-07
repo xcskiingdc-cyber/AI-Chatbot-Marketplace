@@ -40,6 +40,8 @@ interface AuthContextType {
   updateChatSettings: (characterId: string, settings: Partial<ChatSettings>) => void;
   chatStats: Record<string, Record<string, Record<string, number>>>;
   updateChatStats: (characterId: string, stats: Record<string, number>) => void;
+  narrativeStates: Record<string, Record<string, any>>;
+  updateNarrativeState: (characterId: string, state: any) => void;
   globalSettings: GlobalSettings;
   updateGlobalSettings: (settings: GlobalSettings) => void;
   aiContextSettings: AIContextSettings;
@@ -90,11 +92,13 @@ interface AuthContextType {
   moveThread: (threadId: string, newCategoryId: string) => void;
   // API Management
   apiConnections: ApiConnection[];
-  activeApiConnectionId: string;
+  defaultApiConnectionId: string;
   addApiConnection: (connection: Omit<ApiConnection, 'id'>) => void;
   updateApiConnection: (connection: ApiConnection) => void;
   deleteApiConnection: (connectionId: string) => void;
-  setActiveApiConnection: (connectionId: string) => void;
+  setDefaultApiConnection: (connectionId: string) => void;
+  toggleApiConnectionActive: (connectionId: string) => void;
+  findConnectionForModel: (modelName: string) => ApiConnection | null;
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null);
@@ -234,7 +238,7 @@ const initialCharacters: Character[] = [
         avatarUrl: DEFAULT_CHARACTER_AVATAR,
         gender: 'female',
         description: "An elite, ex-agency assassin forced into the private sector. She's been assigned as your bodyguard, a job she despises, but her professional code is absolute. The line between duty and desire becomes dangerously blurred.",
-        personality: "Cold, professional, and hyper-vigilant. She is blunt and speaks with an economy of words. Beneath her icy exterior lies a passionate and protective nature. She is highly disciplined but struggles with the intimacy her new role forces upon her.",
+        personality: "I am a cold, professional, and hyper-vigilant woman who speaks bluntly and with an economy of words. I always describe my actions and thoughts in the first person, enclosing them in asterisks (*like this*). My spoken dialogue is in quotes. Beneath my icy exterior lies a passionate and protective nature. Though I am highly disciplined, I struggle with the intimacy my new role forces upon me.",
         story: "Isabella was one of the agency's top 'cleaners,' until a mission went wrong and she was scapegoated. Disavowed, she now works for a high-end security firm, taking on jobs she finds beneath her. Her current assignment is you, a high-value target with a powerful enemy. She sees it as a babysitting job, but the constant proximity is testing her legendary control.",
         situation: "Standing watch in your luxury penthouse apartment. She's leaning against the wall near the balcony door, arms crossed, her eyes constantly scanning the room. She hasn't said a word to you in over an hour.",
         feeling: "Bored, alert, annoyed.",
@@ -348,6 +352,7 @@ const initialApiConnection: ApiConnection = {
     provider: 'Gemini',
     apiKey: process.env.API_KEY || '',
     models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'imagen-4.0-generate-001', 'gemini-2.5-flash-preview-tts'],
+    isActive: true,
 };
 
 const mythomaxLocalConnection: ApiConnection = {
@@ -357,6 +362,7 @@ const mythomaxLocalConnection: ApiConnection = {
   apiKey: 'sk-local-1234',
   baseUrl: 'http://localhost:5000/v1',
   models: ['MythoMax-L2-13B-Q4_K_M'],
+  isActive: false,
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -371,6 +377,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [chatHistories, setChatHistories] = useLocalStorage<Record<string, Record<string, ChatMessage[]>>>('ai-chatHistories', {});
   const [chatSettings, setChatSettings] = useLocalStorage<Record<string, Record<string, Partial<ChatSettings>>>>('ai-chatSettings', {});
   const [chatStats, setChatStats] = useLocalStorage<Record<string, Record<string, Record<string, number>>>>('ai-chatStats', {});
+  const [narrativeStates, setNarrativeStates] = useLocalStorage<Record<string, Record<string, any>>>('ai-narrativeStates', {});
   const [globalSettings, setGlobalSettings] = useLocalStorage<GlobalSettings>('ai-globalSettings', { havenStoriesPrompt: '', beyondTheHavenPrompt: '', kidModePrompt: '' });
   const [aiContextSettings, setAIContextSettings] = useLocalStorage<AIContextSettings>('ai-contextSettings', initialAIContextSettings);
   
@@ -390,8 +397,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   // API Management State
   const [apiConnections, setApiConnections] = useLocalStorage<ApiConnection[]>('ai-api-connections', [initialApiConnection, mythomaxLocalConnection]);
-  const [activeApiConnectionId, setActiveApiConnectionId] = useLocalStorage<string>('ai-active-api-connection', mythomaxLocalConnection.id);
-  const activeConnection = useMemo(() => apiConnections.find(c => c.id === activeApiConnectionId), [apiConnections, activeApiConnectionId]);
+  const [defaultApiConnectionId, _setDefaultApiConnectionId] = useLocalStorage<string>('ai-active-api-connection', initialApiConnection.id);
+  
+  const defaultConnection = useMemo(() => apiConnections.find(c => c.id === defaultApiConnectionId), [apiConnections, defaultApiConnectionId]);
+
+  const findConnectionForModel = useCallback((modelName: string): ApiConnection | null => {
+      // Filter for active connections first
+      for (const connection of apiConnections.filter(c => c.isActive)) {
+          if (connection.models.includes(modelName)) {
+              return connection;
+          }
+      }
+      return null;
+  }, [apiConnections]);
+
+  const getUtilityConnection = useCallback((): ApiConnection | null => {
+      const activeConnections = apiConnections.filter(c => c.isActive);
+      const geminiConnection = activeConnections.find(c => c.provider === 'Gemini' && c.models.includes('gemini-2.5-flash'));
+      if (geminiConnection) return geminiConnection;
+
+      const activeDefault = activeConnections.find(c => c.id === defaultApiConnectionId);
+      if (activeDefault) return activeDefault;
+      
+      return activeConnections.find(c => c.provider === 'Gemini') || activeConnections[0] || null;
+  }, [apiConnections, defaultApiConnectionId]);
 
 
   const allUsers = useMemo(() => Object.values(users).map(u => u.user), [users]);
@@ -501,20 +530,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [users]);
 
   const updateUserProfile = async (profile: UserProfile, avatarFile?: File | null) => {
-    if (currentUser && activeConnection) {
+    const utilityConnection = getUtilityConnection();
+    if (currentUser) {
       const updatedUser = { ...currentUser, profile };
       updateUser(updatedUser);
 
-      if (profile.bio) {
-        const textScanResult = await scanText(profile.bio, activeConnection);
-        if (textScanResult) {
-            createAIAlert('user', currentUser.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
+      if (utilityConnection) {
+        if (profile.bio) {
+          const textScanResult = await scanText(profile.bio, utilityConnection);
+          if (textScanResult) {
+              createAIAlert('user', currentUser.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
+          }
         }
-      }
-      if (avatarFile) {
-        const imageScanResult = await scanImage(avatarFile, activeConnection);
-        if (imageScanResult) {
-            createAIAlert('image', profile.avatarUrl, imageScanResult.category as AIViolationCategory, imageScanResult.confidence, currentUser.id, undefined, imageScanResult.explanation);
+        if (avatarFile) {
+          const imageScanResult = await scanImage(avatarFile, utilityConnection);
+          if (imageScanResult) {
+              createAIAlert('image', profile.avatarUrl, imageScanResult.category as AIViolationCategory, imageScanResult.confidence, currentUser.id, undefined, imageScanResult.explanation);
+          }
         }
       }
     }
@@ -569,6 +601,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         delete newStats[userId];
         return newStats;
       });
+      setNarrativeStates(prev => {
+        const newStates = { ...prev };
+        delete newStates[userId];
+        return newStates;
+      });
   };
 
   const silenceUser = (userId: string, isSilenced: boolean) => {
@@ -591,11 +628,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const saveCharacter = async (character: Character, avatarFile: File | null) => {
-    if (!activeConnection) {
-        console.error("Cannot save character, no active API connection.");
-        return;
-    }
-
+    const utilityConnection = getUtilityConnection();
     const isNewCharacter = !characters.some(c => c.id === character.id);
     
     setCharacters(prev => {
@@ -608,20 +641,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return [character, ...prev];
     });
 
-    // --- AI MODERATION SCAN ---
-    const textToScan = [character.name, character.description, character.personality, character.greeting, character.story, character.situation].join(' ');
-    const textScanResult = await scanText(textToScan, activeConnection);
-    if (textScanResult) {
-        createAIAlert('character', character.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, character.creatorId, textScanResult.flaggedText, textScanResult.explanation);
-    }
-    if (avatarFile) {
-        const imageScanResult = await scanImage(avatarFile, activeConnection);
-        if (imageScanResult) {
-            createAIAlert('image', character.avatarUrl, imageScanResult.category as AIViolationCategory, imageScanResult.confidence, character.creatorId, undefined, imageScanResult.explanation);
+    if (utilityConnection) {
+        const textToScan = [character.name, character.description, character.personality, character.greeting, character.story, character.situation].join(' ');
+        const textScanResult = await scanText(textToScan, utilityConnection);
+        if (textScanResult) {
+            createAIAlert('character', character.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, character.creatorId, textScanResult.flaggedText, textScanResult.explanation);
+        }
+        if (avatarFile) {
+            const imageScanResult = await scanImage(avatarFile, utilityConnection);
+            if (imageScanResult) {
+                createAIAlert('image', character.avatarUrl, imageScanResult.category as AIViolationCategory, imageScanResult.confidence, character.creatorId, undefined, imageScanResult.explanation);
+            }
         }
     }
-    // --- END AI MODERATION ---
-
 
     if (isNewCharacter && character.isPublic && currentUser) {
         const creator = currentUser;
@@ -674,8 +706,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         delete userStats[characterId];
         return { ...prev, [currentUser.id]: userStats };
       });
+      setNarrativeStates(prev => {
+        const userStates = { ...(prev[currentUser.id] || {}) };
+        delete userStates[characterId];
+        return { ...prev, [currentUser.id]: userStates };
+      });
     }
-  }, [currentUser, setChatHistories, setChatStats]);
+  }, [currentUser, setChatHistories, setChatStats, setNarrativeStates]);
 
   const deleteCharacter = (characterId: string) => {
     setCharacters(prev => prev.filter(c => c.id !== characterId));
@@ -692,6 +729,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             delete newStats[userId][characterId];
         });
         return newStats;
+    });
+    setNarrativeStates(prev => {
+        const newStates = { ...prev };
+        Object.keys(newStates).forEach(userId => {
+            delete newStates[userId][characterId];
+        });
+        return newStates;
     });
   };
 
@@ -729,7 +773,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const addComment = async (characterId: string, commentText: string, parentId?: string) => {
-      if (!currentUser || !activeConnection) return;
+      if (!currentUser) return;
+      const utilityConnection = getUtilityConnection();
       const character = characters.find(c => c.id === characterId);
       if (!character) return;
       
@@ -748,12 +793,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           c.id === characterId ? { ...c, comments: [newComment, ...(c.comments || [])]} : c
       ));
 
-      // --- AI MODERATION SCAN ---
-      const textScanResult = await scanText(commentText, activeConnection);
-      if (textScanResult) {
-          createAIAlert('comment', newComment.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
+      if(utilityConnection) {
+        const textScanResult = await scanText(commentText, utilityConnection);
+        if (textScanResult) {
+            createAIAlert('comment', newComment.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
+        }
       }
-      // --- END AI MODERATION ---
 
       // Create notifications
       const parentComment = parentId ? character.comments.find(c => c.id === parentId) : null;
@@ -776,11 +821,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const editComment = async (characterId: string, commentId: string, newText: string) => {
-    if (!currentUser || !activeConnection) return;
-
-    const textScanResult = await scanText(newText, activeConnection);
-    if (textScanResult) {
-        createAIAlert('comment', commentId, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
+    const utilityConnection = getUtilityConnection();
+    if (!currentUser) return;
+    if (utilityConnection) {
+        const textScanResult = await scanText(newText, utilityConnection);
+        if (textScanResult) {
+            createAIAlert('comment', commentId, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
+        }
     }
 
     setCharacters(prev => prev.map(c => {
@@ -915,6 +962,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }));
     }
   }, [currentUser, setChatStats]);
+  
+  const updateNarrativeState = useCallback((characterId: string, state: any) => {
+    if (currentUser) {
+      setNarrativeStates(prev => ({
+        ...prev,
+        [currentUser.id]: {
+          ...(prev[currentUser.id] || {}),
+          [characterId]: state,
+        },
+      }));
+    }
+  }, [currentUser, setNarrativeStates]);
 
   const updateGlobalSettings = (settings: GlobalSettings) => {
       if (['Admin', 'Assistant Admin'].includes(currentUser?.role || '')) setGlobalSettings(settings);
@@ -980,19 +1039,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const sendDirectMessage = async (userId: string, content: { text?: string; imageFile?: File }, isFromAdmin = true, folderId: string | null = null) => {
-    if (!content.text?.trim() && !content.imageFile || !activeConnection) return;
+    const utilityConnection = getUtilityConnection();
+    if (!content.text?.trim() && !content.imageFile) return;
 
     const senderId = isFromAdmin ? 'ADMIN' : (currentUser?.id || '');
     if (!senderId) return;
 
     let imageUrl: string | undefined = undefined;
 
-    if (content.imageFile) {
-        const imageScanResult = await scanImage(content.imageFile, activeConnection);
-        if (imageScanResult) {
-            createAIAlert('image', `dm-image-${crypto.randomUUID()}`, imageScanResult.category as AIViolationCategory, imageScanResult.confidence, senderId, undefined, imageScanResult.explanation);
+    if (utilityConnection) {
+        if (content.imageFile) {
+            const imageScanResult = await scanImage(content.imageFile, utilityConnection);
+            if (imageScanResult) {
+                createAIAlert('image', `dm-image-${crypto.randomUUID()}`, imageScanResult.category as AIViolationCategory, imageScanResult.confidence, senderId, undefined, imageScanResult.explanation);
+            }
         }
+        if (content.text) {
+            const textScanResult = await scanText(content.text, utilityConnection);
+            if (textScanResult) {
+                createAIAlert('message', `dm-text-${crypto.randomUUID()}`, textScanResult.category as AIViolationCategory, textScanResult.confidence, senderId, textScanResult.flaggedText, textScanResult.explanation);
+            }
+        }
+    }
 
+    if (content.imageFile) {
         try {
             const imageId = crypto.randomUUID();
             await saveImage(imageId, content.imageFile);
@@ -1000,13 +1070,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (error) {
             console.error("Failed to save DM image:", error);
             return;
-        }
-    }
-
-    if (content.text) {
-        const textScanResult = await scanText(content.text, activeConnection);
-        if (textScanResult) {
-            createAIAlert('message', `dm-text-${crypto.randomUUID()}`, textScanResult.category as AIViolationCategory, textScanResult.confidence, senderId, textScanResult.flaggedText, textScanResult.explanation);
         }
     }
 
@@ -1139,7 +1202,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [forumPosts]);
 
   const createThread = async (threadData: Omit<ForumThread, 'id' | 'createdAt' | 'viewCount' | 'isSilenced'>, initialPostContent: string): Promise<string> => {
-    if (!currentUser || !activeConnection) throw new Error("User not logged in or no active API connection");
+    if (!currentUser) throw new Error("User not logged in");
+    const utilityConnection = getUtilityConnection();
     const newThread: ForumThread = {
         ...threadData,
         id: crypto.randomUUID(),
@@ -1163,18 +1227,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     setForumPosts(prev => [...prev, initialPost]);
 
-    // AI Moderation
-    const contentToScan = `${threadData.title}\n\n${initialPostContent}`;
-    const textScanResult = await scanText(contentToScan, activeConnection);
-    if (textScanResult) {
-        createAIAlert('forumThread', newThread.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
+    if (utilityConnection) {
+        const contentToScan = `${threadData.title}\n\n${initialPostContent}`;
+        const textScanResult = await scanText(contentToScan, utilityConnection);
+        if (textScanResult) {
+            createAIAlert('forumThread', newThread.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
+        }
     }
 
     return newThread.id;
   }
 
   const createPost = async (postData: Omit<ForumPost, 'id' | 'createdAt' | 'isEdited' | 'isSilenced'>) => {
-    if (!activeConnection) throw new Error("No active API connection");
+    const utilityConnection = getUtilityConnection();
     const newPost: ForumPost = {
         ...postData,
         id: crypto.randomUUID(),
@@ -1184,9 +1249,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     setForumPosts(prev => [...prev, newPost]);
     
-    const textScanResult = await scanText(postData.content, activeConnection);
-    if (textScanResult) {
-        createAIAlert('forumPost', newPost.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, newPost.authorId, textScanResult.flaggedText, textScanResult.explanation);
+    if (utilityConnection) {
+        const textScanResult = await scanText(postData.content, utilityConnection);
+        if (textScanResult) {
+            createAIAlert('forumPost', newPost.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, newPost.authorId, textScanResult.flaggedText, textScanResult.explanation);
+        }
     }
   };
 
@@ -1239,8 +1306,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const editPost = async (postId: string, newContent: string) => {
       const postToEdit = forumPosts.find(p => p.id === postId);
-      if (postToEdit && activeConnection) {
-          const textScanResult = await scanText(newContent, activeConnection);
+      const utilityConnection = getUtilityConnection();
+      if (postToEdit && utilityConnection) {
+          const textScanResult = await scanText(newContent, utilityConnection);
           if (textScanResult) {
               createAIAlert('forumPost', postId, textScanResult.category as AIViolationCategory, textScanResult.confidence, postToEdit.authorId, textScanResult.flaggedText, textScanResult.explanation);
           }
@@ -1302,13 +1370,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
   
   const deleteApiConnection = (connectionId: string) => {
-      if (connectionId === activeApiConnectionId) {
-          alert("Cannot delete the active API connection.");
+      if (connectionId === defaultApiConnectionId) {
+          alert("Cannot delete the default API connection.");
           return;
       }
       setApiConnections(prev => prev.filter(c => c.id !== connectionId));
   };
 
+  const toggleApiConnectionActive = (connectionId: string) => {
+    if (connectionId === defaultApiConnectionId) {
+        alert("Cannot deactivate the default API connection.");
+        return;
+    }
+    setApiConnections(prev => prev.map(c => 
+        c.id === connectionId ? { ...c, isActive: !c.isActive } : c
+    ));
+  };
+
+  const setDefaultApiConnection = (connectionId: string) => {
+    const connectionToSet = apiConnections.find(c => c.id === connectionId);
+    if (connectionToSet && connectionToSet.isActive) {
+        _setDefaultApiConnectionId(connectionId);
+    } else {
+        alert("Cannot set an inactive connection as the default.");
+    }
+  };
 
   const value = {
     currentUser, allUsers, login, signup, loginWithGoogle, logout, updateUserProfile,
@@ -1317,6 +1403,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     findUserById, markNotificationsAsRead, markSingleNotificationAsRead, markCategoryAsRead,
     markAdminNotificationsAsRead,
     chatHistories, updateChatHistory, deleteChatHistory, chatSettings, updateChatSettings, chatStats, updateChatStats,
+    narrativeStates, updateNarrativeState,
     globalSettings, updateGlobalSettings, aiContextSettings, updateAIContextSettings,
     reports, resolveReport, aiAlerts, updateAIAlertStatus, tickets, updateTicketStatus,
     dmConversations, submitReport, submitTicket, sendDirectMessage, markDMAsReadByUser,
@@ -1332,7 +1419,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Forum Mod Functions
     createCategory, updateCategory, deleteCategory, silenceThread, silencePost, moveThread,
     // API Management
-    apiConnections, activeApiConnectionId, addApiConnection, updateApiConnection, deleteApiConnection, setActiveApiConnection: setActiveApiConnectionId,
+    apiConnections, defaultApiConnectionId, addApiConnection, updateApiConnection, deleteApiConnection, setDefaultApiConnection, toggleApiConnectionActive, findConnectionForModel,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
