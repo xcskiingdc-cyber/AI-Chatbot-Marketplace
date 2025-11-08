@@ -24,14 +24,28 @@ const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, o
 
   const formattedText = useMemo(() => {
     if (!message.text) return [];
-    // Split by the markdown for italics (*...*), capturing the delimiter.
-    return message.text.split(/(\*.*?\*)/g).map((segment, index) => {
+    
+    const italicRegex = /(\*.*?\*)/g;
+    const quoteRegex = /(["].*?["])/g;
+
+    return message.text.split(italicRegex).map((segment, index) => {
         if (segment.startsWith('*') && segment.endsWith('*')) {
-            // This is an action/narration part. Render it as italics.
-            return <em key={index}>{segment.substring(1, segment.length - 1)}</em>;
+            // Italicized action/narration
+            return <em key={`italic-${index}`}>{segment.substring(1, segment.length - 1)}</em>;
+        } else if (segment) {
+            // Not an italicized part, might contain dialogue.
+            // Split this segment by quoted dialogue.
+            return segment.split(quoteRegex).map((subSegment, subIndex) => {
+                if (subSegment.startsWith('"') && subSegment.endsWith('"')) {
+                    // Quoted dialogue, make it bold.
+                    return <strong key={`bold-${index}-${subIndex}`}>{subSegment}</strong>;
+                } else {
+                    // Regular narration outside of italics or quotes.
+                    return <span key={`span-${index}-${subIndex}`}>{subSegment}</span>;
+                }
+            });
         }
-        // This is a regular text part (e.g., dialogue).
-        return <span key={index}>{segment}</span>;
+        return null; // Handle empty strings from split
     });
   }, [message.text]);
 
