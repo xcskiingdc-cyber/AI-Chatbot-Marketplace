@@ -1,6 +1,7 @@
 
+
 const DB_NAME = 'AIChatbotMarketplaceDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const IMAGE_STORE_NAME = 'images';
 
 let db: IDBDatabase | null = null;
