@@ -1,6 +1,7 @@
 import React, { useState, useContext, useMemo, useEffect, useCallback, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { GlobalSettings, User, UserType, Character, AIContextSettings, CharacterContextField, UserRole, AppView } from '../types';
+// FIX: Import UserProfile to resolve the 'Cannot find name' error.
+import { GlobalSettings, User, UserType, Character, AIContextSettings, CharacterContextField, UserRole, AppView, UserProfile } from '../types';
 import ConfirmationModal from './ConfirmationModal';
 import ProfileEditModal from './ProfileEditModal';
 import Avatar from './Avatar';
@@ -243,16 +244,16 @@ const AIContextManagementTab: React.FC = () => {
     const auth = useContext(AuthContext);
     const [settings, setSettings] = useState<AIContextSettings>({ 
         includedFields: ['gender', 'personality', 'story', 'situation', 'feeling', 'appearance'], 
-        historyLength: 200, 
-        maxResponseCharacters: 2000 
+        historyLength: 200,
+        maxResponseTokens: 150,
     });
     const [inputValues, setInputValues] = useState({
         historyLength: '200',
-        maxResponseCharacters: '2000'
+        maxResponseTokens: '150',
     });
     const [errors, setErrors] = useState({
         historyLength: '',
-        maxResponseCharacters: ''
+        maxResponseTokens: '',
     });
     const [isSaved, setIsSaved] = useState(false);
 
@@ -272,7 +273,7 @@ const AIContextManagementTab: React.FC = () => {
             setSettings(auth.aiContextSettings);
             setInputValues({
                 historyLength: String(auth.aiContextSettings.historyLength),
-                maxResponseCharacters: String(auth.aiContextSettings.maxResponseCharacters),
+                maxResponseTokens: String(auth.aiContextSettings.maxResponseTokens),
             });
         }
     }, [auth?.aiContextSettings]);
@@ -286,7 +287,7 @@ const AIContextManagementTab: React.FC = () => {
         });
     };
 
-    const handleInputChange = (key: 'historyLength' | 'maxResponseCharacters', value: string) => {
+    const handleInputChange = (key: 'historyLength' | 'maxResponseTokens', value: string) => {
         setInputValues(prev => ({ ...prev, [key]: value }));
         if (errors[key]) {
             setErrors(prev => ({ ...prev, [key]: '' }));
@@ -294,7 +295,7 @@ const AIContextManagementTab: React.FC = () => {
     };
 
     const handleSave = () => {
-        const newErrors = { historyLength: '', maxResponseCharacters: '' };
+        const newErrors = { historyLength: '', maxResponseTokens: '' };
         let isValid = true;
 
         const historyLengthNum = parseInt(inputValues.historyLength, 10);
@@ -303,9 +304,9 @@ const AIContextManagementTab: React.FC = () => {
             isValid = false;
         }
 
-        const maxResponseCharactersNum = parseInt(inputValues.maxResponseCharacters, 10);
-        if (isNaN(maxResponseCharactersNum) || maxResponseCharactersNum < 400 || maxResponseCharactersNum > 40000) {
-            newErrors.maxResponseCharacters = 'Must be a number between 400 and 40,000.';
+        const maxResponseTokensNum = parseInt(inputValues.maxResponseTokens, 10);
+        if (isNaN(maxResponseTokensNum) || maxResponseTokensNum < 1 || maxResponseTokensNum > 8192) {
+            newErrors.maxResponseTokens = 'Must be a number between 1 and 8192.';
             isValid = false;
         }
 
@@ -315,7 +316,7 @@ const AIContextManagementTab: React.FC = () => {
             auth?.updateAIContextSettings({
                 ...settings,
                 historyLength: historyLengthNum,
-                maxResponseCharacters: maxResponseCharactersNum,
+                maxResponseTokens: maxResponseTokensNum,
             });
             setIsSaved(true);
             setTimeout(() => setIsSaved(false), 2500);
@@ -345,31 +346,29 @@ const AIContextManagementTab: React.FC = () => {
                     ))}
                 </div>
             </div>
-            <div className="grid md:grid-cols-2 gap-6">
-                 <div>
-                    <label htmlFor="historyLength" className={labelClasses}>Chat History Context Length</label>
-                    <p className="text-sm text-text-secondary mb-3">How many previous messages (user and bot combined) to include for context. Recommended: 20-40.</p>
-                    <input
-                        type="number"
-                        id="historyLength"
-                        value={inputValues.historyLength}
-                        onChange={(e) => handleInputChange('historyLength', e.target.value)}
-                        className={inputClasses}
-                    />
-                    {errors.historyLength && <p className={errorTextClasses}>{errors.historyLength}</p>}
-                </div>
-                 <div>
-                    <label htmlFor="maxResponseCharacters" className={labelClasses}>Max Response Characters</label>
-                    <p className="text-sm text-text-secondary mb-3">Global character limit for an AI response. Range: 400 - 40,000.</p>
-                    <input
-                        type="number"
-                        id="maxResponseCharacters"
-                        value={inputValues.maxResponseCharacters}
-                        onChange={(e) => handleInputChange('maxResponseCharacters', e.target.value)}
-                        className={inputClasses}
-                    />
-                    {errors.maxResponseCharacters && <p className={errorTextClasses}>{errors.maxResponseCharacters}</p>}
-                </div>
+            <div>
+                <label htmlFor="historyLength" className={labelClasses}>Chat History Context Length</label>
+                <p className="text-sm text-text-secondary mb-3">How many previous messages (user and bot combined) to include for context. Recommended: 20-40.</p>
+                <input
+                    type="number"
+                    id="historyLength"
+                    value={inputValues.historyLength}
+                    onChange={(e) => handleInputChange('historyLength', e.target.value)}
+                    className={inputClasses}
+                />
+                {errors.historyLength && <p className={errorTextClasses}>{errors.historyLength}</p>}
+            </div>
+            <div>
+                <label htmlFor="maxResponseTokens" className={labelClasses}>Max Response Tokens</label>
+                <p className="text-sm text-text-secondary mb-3">The maximum number of tokens the AI can generate in a single response. A lower number means shorter replies. (e.g., 150)</p>
+                <input
+                    type="number"
+                    id="maxResponseTokens"
+                    value={inputValues.maxResponseTokens}
+                    onChange={(e) => handleInputChange('maxResponseTokens', e.target.value)}
+                    className={inputClasses}
+                />
+                {errors.maxResponseTokens && <p className={errorTextClasses}>{errors.maxResponseTokens}</p>}
             </div>
              <div className="flex justify-end">
                 <button 
@@ -409,104 +408,103 @@ const UserManagementTab: React.FC = () => {
                 setOpenMenu(null);
             }
         };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    const filteredUsers = useMemo(() => {
-        if (!auth?.allUsers) return [];
-        return auth.allUsers.filter(user => 
-            user.username.toLowerCase().includes(filter.toLowerCase()) ||
-            user.profile.name.toLowerCase().includes(filter.toLowerCase()) ||
-            user.profile.email.toLowerCase().includes(filter.toLowerCase())
-        );
-    }, [auth?.allUsers, filter]);
+    if (!auth) return null;
 
-    const handleSaveProfile = (profile: User['profile'], avatarFile: File | null) => {
+    const { allUsers = [], updateUserType, updateUserRole, silenceUser, deleteUser, updateAnyUserProfile, currentUser } = auth;
+
+    const filteredUsers = useMemo(() => {
+        const lowerFilter = filter.toLowerCase();
+        return allUsers.filter(u =>
+            u.profile.name.toLowerCase().includes(lowerFilter) ||
+            u.username.toLowerCase().includes(lowerFilter) ||
+            u.profile.email.toLowerCase().includes(lowerFilter)
+        );
+    }, [allUsers, filter]);
+
+    const handleSaveProfile = (profile: UserProfile) => {
         if (userToEdit) {
-            auth?.updateAnyUserProfile(userToEdit.id, profile);
-            // Note: Admin edits to profile pictures are not implemented to avoid complexity with dbService
+            updateAnyUserProfile(userToEdit.id, profile);
         }
         setUserToEdit(null);
     };
     
     const handleConfirmDelete = () => {
-        if(userToDelete) {
-            auth?.deleteUser(userToDelete.id);
+        if (userToDelete) {
+            deleteUser(userToDelete.id);
         }
         setUserToDelete(null);
-    }
-    
+    };
+
+    const userTypes: UserType[] = ['Free', 'Ads', 'Subscription'];
+    const userRoles: UserRole[] = ['User', 'Moderator', 'Assistant Admin', 'Admin'];
+
     return (
         <div className="space-y-4">
             <input 
-                type="text" 
-                placeholder="Search users by username, name, or email..."
+                type="text"
+                placeholder="Search by name, username, or email..."
                 value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                className="w-full bg-primary border border-border rounded-md py-2 px-4"
+                onChange={e => setFilter(e.target.value)}
+                className="w-full max-w-lg p-2 bg-primary border border-border rounded-md"
             />
             <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-border">
-                    <thead className="bg-tertiary">
+                    <thead className="bg-primary">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">User</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Role</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Type</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Status</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Actions</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary uppercase">User</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary uppercase">Type</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary uppercase">Role</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary uppercase">Status</th>
+                            <th className="relative px-4 py-2"><span className="sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
                         {filteredUsers.map(user => (
                             <tr key={user.id}>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="flex items-center">
-                                        <Avatar imageId={user.profile.avatarUrl} alt={user.profile.name} className="h-10 w-10 rounded-full object-cover"/>
-                                        <div className="ml-4">
-                                            <div className="text-sm font-medium text-text-primary">{user.profile.name}</div>
-                                            <div className="text-sm text-text-secondary">@{user.username}</div>
+                                <td className="px-4 py-3 whitespace-nowrap">
+                                    <div className="flex items-center gap-3">
+                                        <Avatar imageId={user.profile.avatarUrl} alt={user.profile.name} className="w-8 h-8 rounded-full object-cover" />
+                                        <div>
+                                            <p className="font-medium">{user.profile.name}</p>
+                                            <p className="text-sm text-text-secondary">{user.profile.email}</p>
                                         </div>
                                     </div>
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-text-primary">{user.role}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-text-primary">{user.userType}</td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    {user.isSilenced 
-                                        ? <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-900/50 text-yellow-300">Silenced</span>
-                                        : <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-900/50 text-green-300">Active</span>
-                                    }
+                                <td className="px-4 py-3 whitespace-nowrap text-sm">{user.userType}</td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm">{user.role}</td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm">
+                                    {user.isSilenced && <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-900/50 text-yellow-300">Silenced</span>}
+                                    {!user.isSilenced && <span className="px-2 py-1 text-xs font-semibold rounded-full bg-success/20 text-success">Active</span>}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                    <div className="relative" ref={openMenu === user.id ? menuRef : null}>
-                                        <button onClick={() => setOpenMenu(openMenu === user.id ? null : user.id)} className="px-3 py-1 bg-tertiary hover:bg-hover rounded-md">
-                                            Actions &#9662;
+                                <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium relative">
+                                    {user.id !== currentUser?.id && user.role !== 'Admin' && (
+                                        <button onClick={() => setOpenMenu(openMenu === user.id ? null : user.id)} className="text-text-secondary hover:text-text-primary">
+                                            &#x22EE; {/* Vertical ellipsis */}
                                         </button>
-                                        {openMenu === user.id && (
-                                            <div className="origin-top-right absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-tertiary ring-1 ring-black ring-opacity-5 z-10 p-1">
-                                                <button onClick={() => { setUserToEdit(user); setOpenMenu(null); }} className="block w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary rounded">Edit Profile</button>
-                                                {user.role !== 'Admin' && (
-                                                    <>
-                                                        <div className="my-1 border-t border-border"></div>
-                                                        <div className="px-3 py-2 text-xs font-semibold text-text-secondary">Change Role</div>
-                                                        {(['User', 'Moderator', 'Assistant Admin'] as UserRole[]).map(role => (
-                                                            <button key={role} disabled={user.role === role} onClick={() => { auth?.updateUserRole(user.id, role); setOpenMenu(null); }} className="block w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary rounded disabled:opacity-50 disabled:cursor-not-allowed">{user.role === role ? `✓ ${role}` : role}</button>
-                                                        ))}
-                                                        <div className="my-1 border-t border-border"></div>
-                                                        <div className="px-3 py-2 text-xs font-semibold text-text-secondary">Change Type</div>
-                                                        {(['Free', 'Ads', 'Subscription'] as UserType[]).map(type => (
-                                                             <button key={type} disabled={user.userType === type} onClick={() => { auth?.updateUserType(user.id, type); setOpenMenu(null); }} className="block w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary rounded disabled:opacity-50 disabled:cursor-not-allowed">{user.userType === type ? `✓ ${type}` : type}</button>
-                                                        ))}
-                                                        <div className="my-1 border-t border-border"></div>
-                                                        <button onClick={() => { auth?.silenceUser(user.id, !user.isSilenced); setOpenMenu(null); }} className="block w-full text-left px-3 py-2 text-sm text-yellow-400 hover:bg-hover hover:text-yellow-300 rounded">{user.isSilenced ? 'Unsilence' : 'Silence User'}</button>
-                                                        <button onClick={() => { setUserToDelete(user); setOpenMenu(null); }} className="block w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-hover hover:text-red-400 rounded">Delete User</button>
-                                                    </>
-                                                )}
+                                    )}
+                                    {openMenu === user.id && (
+                                        <div ref={menuRef} className="absolute right-0 mt-2 w-48 origin-top-right bg-primary rounded-md shadow-lg ring-1 ring-black ring-opacity-5 z-10 border border-border">
+                                            <div className="py-1" role="menu" aria-orientation="vertical">
+                                                <button onClick={() => { setUserToEdit(user); setOpenMenu(null); }} className="block w-full text-left px-4 py-2 text-sm text-text-secondary hover:bg-hover">Edit Profile</button>
+                                                <div className="px-4 py-2 text-xs text-text-secondary">Set Type:</div>
+                                                {userTypes.map(type => (
+                                                    <button key={type} onClick={() => { updateUserType(user.id, type); setOpenMenu(null); }} className="block w-full text-left px-4 py-2 text-sm text-text-secondary hover:bg-hover">{user.userType === type ? '✓ ' : ''}{type}</button>
+                                                ))}
+                                                <div className="border-t border-border my-1"></div>
+                                                <div className="px-4 py-2 text-xs text-text-secondary">Set Role:</div>
+                                                {userRoles.map(role => (
+                                                    <button key={role} onClick={() => { updateUserRole(user.id, role); setOpenMenu(null); }} className="block w-full text-left px-4 py-2 text-sm text-text-secondary hover:bg-hover">{user.role === role ? '✓ ' : ''}{role}</button>
+                                                ))}
+                                                <div className="border-t border-border my-1"></div>
+                                                <button onClick={() => { silenceUser(user.id, !user.isSilenced); setOpenMenu(null); }} className="block w-full text-left px-4 py-2 text-sm text-yellow-400 hover:bg-hover">{user.isSilenced ? 'Unsilence' : 'Silence'} User</button>
+                                                <button onClick={() => { setUserToDelete(user); setOpenMenu(null); }} className="block w-full text-left px-4 py-2 text-sm text-danger hover:bg-hover">Delete User</button>
                                             </div>
-                                        )}
-                                    </div>
+                                        </div>
+                                    )}
                                 </td>
                             </tr>
                         ))}
@@ -514,13 +512,16 @@ const UserManagementTab: React.FC = () => {
                 </table>
             </div>
             {userToEdit && (
-                <ProfileEditModal userProfile={userToEdit.profile} onSave={handleSaveProfile} onCancel={() => setUserToEdit(null)} />
+                <ProfileEditModal 
+                    userProfile={userToEdit.profile} 
+                    onSave={handleSaveProfile} 
+                    onCancel={() => setUserToEdit(null)} 
+                />
             )}
             {userToDelete && (
-                <ConfirmationModal
+                <ConfirmationModal 
                     title="Delete User?"
-                    message={`Are you sure you want to delete ${userToDelete.profile.name}? This will also delete all their characters and chats. This is irreversible.`}
-                    confirmText="Delete User"
+                    message={`Are you sure you want to permanently delete user "${userToDelete.profile.name}"? This action cannot be undone.`}
                     onConfirm={handleConfirmDelete}
                     onCancel={() => setUserToDelete(null)}
                 />
@@ -532,82 +533,97 @@ const UserManagementTab: React.FC = () => {
 const ContentModerationTab: React.FC<{setView: (view: AppView) => void}> = ({setView}) => {
     const auth = useContext(AuthContext);
     const [filter, setFilter] = useState('');
+    const [visibilityFilter, setVisibilityFilter] = useState<'all' | 'public' | 'private'>('all');
     const [charToDelete, setCharToDelete] = useState<Character | null>(null);
-    
+
+    if (!auth) return null;
+
+    const { characters = [], findUserById, silenceCharacter, deleteCharacter } = auth;
+
     const filteredCharacters = useMemo(() => {
-        if (!auth?.characters) return [];
-        return auth.characters.filter(c => 
-            c.name.toLowerCase().includes(filter.toLowerCase()) ||
-            c.description.toLowerCase().includes(filter.toLowerCase())
-        );
-    }, [auth?.characters, filter]);
-    
+        const lowerFilter = filter.toLowerCase();
+        return characters.filter(c => {
+            if (visibilityFilter === 'public' && !c.isPublic) return false;
+            if (visibilityFilter === 'private' && c.isPublic) return false;
+            if (lowerFilter && !c.name.toLowerCase().includes(lowerFilter) && !c.description.toLowerCase().includes(lowerFilter)) return false;
+            return true;
+        });
+    }, [characters, filter, visibilityFilter]);
+
     const handleConfirmDelete = () => {
-        if (charToDelete && auth) {
-            auth.deleteCharacter(charToDelete.id);
+        if(charToDelete) {
+            deleteCharacter(charToDelete.id);
         }
         setCharToDelete(null);
-    };
+    }
 
     return (
-         <div className="space-y-4">
-            <input 
-                type="text" 
-                placeholder="Search characters by name or description..."
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                className="w-full bg-primary border border-border rounded-md py-2 px-4"
-            />
-            <div className="overflow-x-auto">
+        <div className="space-y-4">
+             <div className="flex flex-col sm:flex-row gap-4">
+                <input 
+                    type="text"
+                    placeholder="Search by name or description..."
+                    value={filter}
+                    onChange={e => setFilter(e.target.value)}
+                    className="w-full max-w-lg p-2 bg-primary border border-border rounded-md"
+                />
+                <select 
+                    value={visibilityFilter} 
+                    onChange={e => setVisibilityFilter(e.target.value as any)}
+                    className="p-2 bg-primary border border-border rounded-md"
+                >
+                    <option value="all">All Visibilities</option>
+                    <option value="public">Public Only</option>
+                    <option value="private">Private Only</option>
+                </select>
+             </div>
+             <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-border">
-                    <thead className="bg-tertiary">
+                    <thead className="bg-primary">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Character</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Creator</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Status</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Actions</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary uppercase">Character</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary uppercase">Creator</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary uppercase">Status</th>
+                            <th className="relative px-4 py-2"><span className="sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                        {filteredCharacters.map(char => {
-                            const creator = auth?.findUserById(char.creatorId);
+                        {filteredCharacters.map(character => {
+                            const creator = findUserById(character.creatorId);
                             return (
-                                <tr key={char.id}>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="flex items-center">
-                                            <Avatar imageId={char.avatarUrl} alt={char.name} className="h-10 w-10 rounded-md object-cover"/>
-                                            <div className="ml-4">
-                                                <div className="text-sm font-medium text-text-primary">{char.name}</div>
-                                            </div>
+                                <tr key={character.id}>
+                                    <td className="px-4 py-3 whitespace-nowrap">
+                                        <div className="flex items-center gap-3">
+                                            <Avatar imageId={character.avatarUrl} alt={character.name} className="w-8 h-8 rounded-full object-cover" />
+                                            <p className="font-medium">{character.name}</p>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">{creator?.profile.name || 'Unknown'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        {char.isSilencedByAdmin 
-                                            ? <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-900/50 text-yellow-300">Silenced</span>
-                                            : <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${char.isPublic ? 'bg-green-900/50 text-green-300' : 'bg-gray-600/50 text-gray-300'}`}>{char.isPublic ? 'Public' : 'Private'}</span>
+                                    <td className="px-4 py-3 whitespace-nowrap text-sm">{creator?.profile.name || 'Unknown'}</td>
+                                    <td className="px-4 py-3 whitespace-nowrap text-sm">
+                                        {character.isSilencedByAdmin ? 
+                                            <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-900/50 text-yellow-300">Silenced</span> :
+                                            <span className="px-2 py-1 text-xs font-semibold rounded-full bg-success/20 text-success">{character.isPublic ? 'Public' : 'Private'}</span>
                                         }
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-4">
-                                        <button onClick={() => setView({ type: 'EDIT_CHARACTER', characterId: char.id })} className="text-accent-secondary hover:underline">Edit</button>
-                                        <button onClick={() => auth?.silenceCharacter(char.id, !char.isSilencedByAdmin)} className="text-yellow-400 hover:text-yellow-300">{char.isSilencedByAdmin ? 'Unsilence' : 'Silence'}</button>
-                                        <button onClick={() => setCharToDelete(char)} className="text-danger hover:opacity-80">Delete</button>
+                                    <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
+                                        <button onClick={() => setView({type: 'EDIT_CHARACTER', characterId: character.id})} className="text-accent-secondary hover:underline mr-4">Edit</button>
+                                        <button onClick={() => silenceCharacter(character.id, !character.isSilencedByAdmin)} className="text-yellow-400 hover:underline mr-4">{character.isSilencedByAdmin ? 'Unsilence' : 'Silence'}</button>
+                                        <button onClick={() => setCharToDelete(character)} className="text-danger hover:underline">Delete</button>
                                     </td>
                                 </tr>
-                            );
+                            )
                         })}
                     </tbody>
                 </table>
-            </div>
-            {charToDelete && (
-                <ConfirmationModal 
+             </div>
+             {charToDelete && (
+                 <ConfirmationModal
                     title="Delete Character?"
-                    message={`Are you sure you want to permanently delete "${charToDelete.name}"? This action cannot be undone.`}
-                    confirmText="Delete"
+                    message={`Are you sure you want to permanently delete "${charToDelete.name}"? This will also remove all associated chat histories.`}
                     onConfirm={handleConfirmDelete}
                     onCancel={() => setCharToDelete(null)}
-                />
-            )}
+                 />
+             )}
         </div>
     );
 };

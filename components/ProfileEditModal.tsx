@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../types';
 import { CloseIcon, UploadIcon, DeleteIcon } from './Icons';
@@ -7,7 +5,7 @@ import { saveImage } from '../services/dbService';
 
 interface ProfileEditModalProps {
   userProfile: UserProfile;
-  onSave: (profile: UserProfile, avatarFile: File | null) => void;
+  onSave: (profile: UserProfile) => void;
   onCancel: () => void;
 }
 
@@ -72,7 +70,7 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
     } else if (previewUrl === null) {
       finalProfileData.avatarUrl = `https://api.dicebear.com/8.x/initials/svg?seed=${profile.name}`;
     }
-    onSave(finalProfileData, selectedFile);
+    onSave(finalProfileData);
   };
   
   const formFieldClasses = "w-full p-2 bg-secondary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-primary text-text-primary";
@@ -111,7 +109,6 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
                 <input type="text" id="name" name="name" value={profile.name} onChange={handleChange} className={formFieldClasses} required />
                 <p className="text-xs text-text-secondary mt-1">This represents you as the character's creator.</p>
             </div>
-            
             <div>
                 <label className={labelClasses}>Gender</label>
                 <div className="flex items-center space-x-6 text-text-primary">

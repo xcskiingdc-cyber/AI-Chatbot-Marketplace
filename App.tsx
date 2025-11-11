@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useMemo, useContext, useEffect } from 'react';
 import useLocalStorage from './hooks/useLocalStorage';
 import type { Character, ChatMessage, AppView, UserProfile, User, Report, Ticket } from './types';
@@ -100,8 +99,8 @@ const MainApp: React.FC = () => {
     setView({ type: 'PROFILE' });
   };
   
-  const handleSaveProfile = (profile: UserProfile, avatarFile: File | null) => {
-    updateUserProfile(profile, avatarFile);
+  const handleSaveProfile = (profile: UserProfile) => {
+    updateUserProfile(profile);
     setProfileEditModalOpen(false);
   }
 
@@ -252,9 +251,29 @@ const MainApp: React.FC = () => {
             setView({ type: 'HOME' });
             return null;
         }
-        if (!findConnectionForModel?.(currentCharacterForView.model)) {
-            return <div className="p-8 text-center text-red-400">Error: The AI model "{currentCharacterForView.model}" for this character is not available. An administrator may need to configure it in the AI API Settings.</div>
+        
+        const connection = findConnectionForModel?.(currentCharacterForView.model);
+        const isGeminiModel = currentCharacterForView.model.includes('gemini') || currentCharacterForView.model.includes('imagen');
+
+        if (!connection) {
+            if (isGeminiModel && currentUser) {
+                // It's a Gemini model and the user is logged in but has no key (and no global fallback was found)
+                return (
+                    <div className="p-8 text-center text-yellow-300 bg-secondary m-4 sm:m-8 rounded-lg">
+                        <h2 className="text-2xl font-bold mb-4">Gemini API Key Required</h2>
+                        <p>This character uses a Gemini AI model. To continue, please add your own Gemini API Key in your profile settings.</p>
+                        <p className="text-sm text-text-secondary mt-2">Your key is stored locally in your browser and is never shared.</p>
+                        <div className="mt-6 flex flex-col sm:flex-row justify-center gap-4">
+                            <button onClick={() => setView({ type: 'HOME' })} className="px-4 py-2 bg-tertiary text-white rounded-md">Back to Home</button>
+                            <button onClick={() => setProfileEditModalOpen(true)} className="px-4 py-2 bg-accent-secondary text-white rounded-md">Add API Key</button>
+                        </div>
+                    </div>
+                );
+            }
+             // It's some other model, or a Gemini model and user is not logged in
+            return <div className="p-8 text-center text-red-400">Error: The AI model "{currentCharacterForView.model}" for this character is not available. An administrator may need to configure it in the AI API Settings.</div>;
         }
+
         const history = (currentUser && chatHistories[currentUser.id]?.[currentCharacterForView.id]) || [];
         return <ChatView character={currentCharacterForView} chatHistory={history} updateChatHistory={updateChatHistory} onReportMessage={(msg) => setReportModalInfo({ entityType: 'message', entityId: msg.id, contentSnapshot: msg.text, entityCreatorId: currentCharacterForView.creatorId })} onCharacterSelect={setSelectedCharacter} />;
       case 'RECENT_CHATS':
@@ -295,7 +314,7 @@ const MainApp: React.FC = () => {
                             className="w-full bg-secondary border border-border rounded-md py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-accent-primary"
                         />
                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <svg className="h-5 w-5 text-text-secondary" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
+                            <svg className="h-5 w-5 text-text-secondary" xmlns="http://www.w.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
                         </div>
                     </div>
                      <select

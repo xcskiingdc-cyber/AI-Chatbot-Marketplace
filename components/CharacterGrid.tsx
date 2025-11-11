@@ -1,6 +1,4 @@
 
-
-
 import React from 'react';
 import type { Character, AppView, User } from '../types';
 import { EditIcon, HeartIcon, DeleteIcon, ThumbsUpIcon, FlameIcon } from './Icons';
@@ -122,7 +120,7 @@ const CharacterGrid: React.FC<CharacterGridProps> = ({
 
                     {/* Top-right corner controls */}
                     {showControls && (
-                        <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-10">
+                        <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 z-10">
                             <button
                                 onClick={(e) => { e.stopPropagation(); setView({ type: 'EDIT_CHARACTER', characterId: character.id }); }}
                                 className="p-2 bg-black/60 rounded-full text-white hover:opacity-100 transition-opacity"

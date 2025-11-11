@@ -2,7 +2,6 @@ import React, { useState, useContext, useMemo, useEffect } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { ApiConnection, Character, GlobalSettings, AIContextSettings, CharacterContextField, ChatMessage, User } from '../types';
 import { SystemMonitorIcon, SpinnerIcon, UserIcon, DocumentTextIcon, CodeBracketIcon, ChatBubbleIcon, CpuChipIcon, ServerIcon, SparklesIcon, DatabaseIcon, CloseIcon } from './Icons';
-// FIX: Import 'generateChatResponseWithStats' to resolve the 'Cannot find name' error.
 import { buildSystemPrompt, HAVEN_PROMPT, BEYOND_THE_HAVEN_PROMPT, generateChatResponseWithStats } from '../services/aiService';
 
 const StatusIndicator: React.FC<{ isOk: boolean; okText?: string; failText?: string }> = ({ isOk, okText = 'OK', failText = 'Error/Inactive' }) => (
@@ -146,9 +145,8 @@ const OverviewTab: React.FC = () => {
     } = auth;
     
     const activeConnections = apiConnections.filter(c => c.isActive).length;
-    // FIX: Explicitly type the parameters in the nested reduce functions to resolve a TypeScript type inference issue.
     const totalMessages = Object.values(chatHistories).reduce((acc: number, userHistory: Record<string, ChatMessage[]>) => 
-        acc + Object.values(userHistory).reduce((userAcc, history) => userAcc + history.length, 0), 0
+        acc + Object.values(userHistory).reduce((userAcc: number, history: ChatMessage[]) => userAcc + history.length, 0), 0
     );
     const totalPosts = forumThreads.reduce((acc, thread) => acc + (getPostsForThread?.(thread.id)?.length || 0), 0);
     const charsWithNarrativeSystem = characters.length; // Now all characters use it
@@ -206,7 +204,7 @@ const OverviewTab: React.FC = () => {
             </Section>
             <Section title="AI Context">
                 <InfoRow label="History Length" value={String(aiContextSettings.historyLength)} />
-                <InfoRow label="Max Response Chars" value={String(aiContextSettings.maxResponseCharacters)} />
+                <InfoRow label="Max Response Tokens" value={String(aiContextSettings.maxResponseTokens)} />
                 <InfoRow label="Included Fields" value={aiContextSettings.includedFields.join(', ')} status={aiContextSettings.includedFields.length > 0} />
             </Section>
              <Section title="User & Content Stats">
@@ -233,163 +231,207 @@ const OverviewTab: React.FC = () => {
 };
 
 
+// --- Multi-lane Simulation ---
+
+interface SimulationConfig {
+    selectedCharId: string;
+    modelOverride: string;
+    userInput: string;
+    forceFullData: boolean;
+    selectedUserId: string;
+    historyOverride: string;
+    statsOverride: string;
+    narrativeStateOverride: string;
+    kidMode: boolean;
+    havenPromptOverride: string;
+    bthPromptOverride: string;
+    kidModePromptOverride: string;
+}
+
+interface SimulationSlot {
+    id: number;
+    config: SimulationConfig;
+    results: any[] | null;
+    isLoading: boolean;
+}
+
 const LiveSimulationTab: React.FC = () => {
     const auth = useContext(AuthContext);
-    const { characters = [], currentUser, findConnectionForModel, globalSettings, aiContextSettings, apiConnections, narrativeStates } = auth!;
-    const [isSimulating, setIsSimulating] = useState(false);
-    const [selectedCharId, setSelectedCharId] = useState<string>('');
-    const [modelOverride, setModelOverride] = useState<string>('');
-    const [userInput, setUserInput] = useState('');
-    const [simulationResults, setSimulationResults] = useState<any[]>([]);
-    const [forceFullData, setForceFullData] = useState(false);
+    const { characters = [], currentUser, allUsers, findConnectionForModel, globalSettings, aiContextSettings, apiConnections, narrativeStates } = auth!;
 
-    const [overrideContext, setOverrideContext] = useState(false);
-    const [tempIncludedFields, setTempIncludedFields] = useState<CharacterContextField[]>(aiContextSettings.includedFields);
-    
-    const selectedCharacter = useMemo(() => characters.find(c => c.id === selectedCharId), [selectedCharId, characters]);
+    const createDefaultSlot = (id: number): SimulationSlot => ({
+        id,
+        isLoading: false,
+        results: null,
+        config: {
+            selectedCharId: '',
+            modelOverride: '',
+            userInput: 'Hello!',
+            forceFullData: false,
+            selectedUserId: currentUser?.id || '',
+            historyOverride: '',
+            statsOverride: '',
+            narrativeStateOverride: '',
+            kidMode: false,
+            havenPromptOverride: '',
+            bthPromptOverride: '',
+            kidModePromptOverride: '',
+        }
+    });
+
+    const [simulations, setSimulations] = useState<SimulationSlot[]>(() => Array.from({ length: 4 }, (_, i) => createDefaultSlot(i)));
+    const [isSimulating, setIsSimulating] = useState(false);
+
+    const handleConfigChange = <K extends keyof SimulationConfig>(id: number, field: K, value: SimulationConfig[K]) => {
+        setSimulations(prev => prev.map(sim => sim.id === id ? { ...sim, config: { ...sim.config, [field]: value } } : sim));
+    };
     
     useEffect(() => {
-        if (selectedCharacter) {
-            setModelOverride(selectedCharacter.model);
-        } else {
-            setModelOverride('');
+        // When a character is selected in a lane, update its model override to the character's default.
+        const updatedSims = simulations.map(sim => {
+            const char = characters.find(c => c.id === sim.config.selectedCharId);
+            if (char && sim.config.modelOverride === '') {
+                return { ...sim, config: { ...sim.config, modelOverride: char.model } };
+            }
+            return sim;
+        });
+        if (JSON.stringify(updatedSims) !== JSON.stringify(simulations)) {
+            setSimulations(updatedSims);
         }
-    }, [selectedCharacter]);
+    }, [simulations, characters]);
 
-    const handleFieldToggle = (field: CharacterContextField) => {
-        setTempIncludedFields(prev => prev.includes(field) ? prev.filter(f => f !== field) : [...prev, field]);
-    };
 
-    const handleRunSimulation = async () => {
-        const character = selectedCharacter;
-        if (!character || !currentUser || !userInput || !modelOverride) return;
+    const handleRunAllSimulations = async () => {
+        const activeSims = simulations.filter(s => s.config.selectedCharId && s.config.userInput && s.config.modelOverride);
+        if (activeSims.length === 0) return;
 
         setIsSimulating(true);
-        setSimulationResults([]);
-        const startTime = Date.now();
-        const results: any[] = [];
+        setSimulations(prev => prev.map(sim => activeSims.some(as => as.id === sim.id) ? { ...sim, isLoading: true, results: [] } : sim));
 
-        try {
-            results.push({ title: "1. Initialization", icon: <UserIcon className="w-5 h-5" />, status: 'info', data: { character: character.name, model: modelOverride, userInput }});
-            
-            const stats = auth.chatStats[currentUser.id]?.[character.id] || {};
-            character.stats.forEach(s => {
-                if(stats[s.id] === undefined) stats[s.id] = s.initialValue;
+        const simulationPromises = activeSims.map(async (sim) => {
+            const startTime = Date.now();
+            const results: any[] = [];
+            const { config } = sim;
+            try {
+                const character = characters.find(c => c.id === config.selectedCharId)!;
+                const user = allUsers.find(u => u.id === config.selectedUserId) || currentUser!;
+                
+                results.push({ title: "1. Initialization", icon: <UserIcon className="w-5 h-5" />, status: 'info', data: { character: character.name, model: config.modelOverride, userInput: config.userInput, asUser: user.profile.name }});
+                
+                let stats: Record<string, number> = {};
+                if(config.statsOverride) {
+                    try { stats = JSON.parse(config.statsOverride); } catch(e) { throw new Error("Invalid Stats Override JSON"); }
+                } else { character.stats.forEach(s => { stats[s.id] = s.initialValue; }); }
+                if(character.stats.length > 0) results.push({ title: "2a. Stat Initialization", icon: <DatabaseIcon className="w-5 h-5" />, status: 'info', data: stats });
+
+                let narrativeState: any = {};
+                if (config.narrativeStateOverride) {
+                    try { narrativeState = JSON.parse(config.narrativeStateOverride); } catch(e) { throw new Error("Invalid Narrative State Override JSON"); }
+                } else { narrativeState = narrativeStates[user.id]?.[character.id] || {}; }
+                results.push({ title: "2b. Narrative State Initialization", icon: <DatabaseIcon className="w-5 h-5" />, status: 'info', data: narrativeState });
+
+                const connection = findConnectionForModel(config.modelOverride);
+                if (!connection) throw new Error(`No active connection found for model: ${config.modelOverride}`);
+                results.push({ title: "3. Connection Selection", icon: <ServerIcon className="w-5 h-5" />, status: 'success', data: { name: connection.name, provider: connection.provider } });
+
+                const characterForPrompt = config.forceFullData ? { ...character, summary: undefined } : character;
+                const finalSystemPrompt = buildSystemPrompt(characterForPrompt, user, globalSettings, aiContextSettings, config.kidMode, stats, narrativeState, undefined, { haven: config.havenPromptOverride, beyondTheHaven: config.bthPromptOverride, kidMode: config.kidModePromptOverride });
+                results.push({ title: "4. System Prompt Assembled", icon: <DocumentTextIcon className="w-5 h-5" />, status: 'success', data: finalSystemPrompt });
+                
+                let history: ChatMessage[];
+                if(config.historyOverride) {
+                    try { history = JSON.parse(config.historyOverride); } catch(e) { throw new Error("Invalid History Override JSON"); }
+                } else { history = [{ id: 'sim-user-1', sender: 'user', text: config.userInput, timestamp: Date.now() }]; }
+
+                const response = await generateChatResponseWithStats(characterForPrompt, history, user, globalSettings, aiContextSettings, config.kidMode, config.modelOverride, stats, narrativeState, connection, { haven: config.havenPromptOverride, beyondTheHaven: config.bthPromptOverride, kidMode: config.kidModePromptOverride });
+                const duration = Date.now() - startTime;
+                results.push({ title: "5. API Response", icon: <SparklesIcon className="w-5 h-5" />, status: 'success', duration, data: response });
+                
+                return { id: sim.id, results, error: null };
+            } catch (error: any) {
+                results.push({ title: "Simulation Error", icon: <CloseIcon className="w-5 h-5 text-danger" />, status: 'failure', data: error.message });
+                return { id: sim.id, results, error: error.message };
+            }
+        });
+
+        const completedSims = await Promise.allSettled(simulationPromises);
+
+        setSimulations(prev => {
+            const newSims = [...prev];
+            completedSims.forEach(res => {
+                if (res.status === 'fulfilled') {
+                    const { id, results } = res.value;
+                    const index = newSims.findIndex(s => s.id === id);
+                    if (index > -1) {
+                        newSims[index] = { ...newSims[index], isLoading: false, results };
+                    }
+                }
             });
-             if(character.stats.length > 0) {
-                results.push({ title: "2a. Stat Initialization", icon: <DatabaseIcon className="w-5 h-5" />, status: 'info', data: stats });
-            }
-
-            const narrativeState = narrativeStates[currentUser.id]?.[character.id] || {};
-            results.push({ title: "2b. Narrative State Initialization", icon: <DatabaseIcon className="w-5 h-5" />, status: 'info', data: narrativeState });
-
-            const connection = findConnectionForModel(modelOverride);
-            if (!connection) {
-                results.push({ title: "3. Connection Selection", icon: <ServerIcon className="w-5 h-5 text-danger" />, status: 'failure', data: `No active connection found for model: ${modelOverride}` });
-                setSimulationResults(results); setIsSimulating(false); return;
-            }
-            results.push({ title: "3. Connection Selection", icon: <ServerIcon className="w-5 h-5" />, status: 'success', data: { name: connection.name, provider: connection.provider, model: modelOverride } });
-            
-            const characterForPrompt = forceFullData ? { ...character, summary: undefined } : character;
-            const finalSystemPrompt = buildSystemPrompt(characterForPrompt, currentUser, globalSettings, aiContextSettings, false, stats, narrativeState, overrideContext ? tempIncludedFields : undefined);
-            results.push({ title: "4. System Prompt Assembled", icon: <DocumentTextIcon className="w-5 h-5" />, status: 'success', data: finalSystemPrompt });
-
-            const history: ChatMessage[] = [{ id: 'sim-user-1', sender: 'user', text: userInput, timestamp: Date.now() }];
-            
-            let requestPayload;
-            if (connection.provider === 'Gemini') {
-                 requestPayload = {
-                    model: modelOverride,
-                    contents: [ ...history.map(msg => ({ role: msg.sender === 'user' ? 'user' : 'model', parts: [{ text: msg.text }] })) ],
-                    config: { systemInstruction: finalSystemPrompt }
-                };
-            } else { // OpenAI compatible
-                requestPayload = {
-                    model: modelOverride,
-                    messages: [
-                        { role: 'system', content: finalSystemPrompt },
-                        ...history.map(msg => ({ role: msg.sender === 'user' ? 'user' : 'assistant', content: msg.text }))
-                    ]
-                };
-            }
-            results.push({ title: "5. API Request Payload", icon: <CpuChipIcon className="w-5 h-5" />, status: 'info', data: requestPayload});
-            
-            const response = await generateChatResponseWithStats(characterForPrompt, history, currentUser, globalSettings, aiContextSettings, false, modelOverride, stats, narrativeState, connection);
-            const duration = Date.now() - startTime;
-            results.push({ title: "6. API Response", icon: <SparklesIcon className="w-5 h-5" />, status: 'success', duration, data: response });
-            
-            results.push({ title: "7. Final Processed Output", icon: <ChatBubbleIcon className="w-5 h-5" />, status: 'success', data: { responseText: response.responseText, statChanges: response.statChanges, newNarrativeState: response.newNarrativeState }});
-
-        } catch (error: any) {
-            results.push({ title: "Simulation Error", icon: <CloseIcon className="w-5 h-5 text-danger" />, status: 'failure', data: error.message });
-        } finally {
-            setIsSimulating(false);
-            setSimulationResults(results);
-        }
+            return newSims.map(sim => ({...sim, isLoading: false }));
+        });
+        setIsSimulating(false);
     };
-    
-    const allFields: CharacterContextField[] = ['gender', 'description', 'personality', 'story', 'situation', 'feeling', 'appearance'];
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div>
-                <Section title="Simulation Setup">
-                    <div className="space-y-4">
-                        <select value={selectedCharId} onChange={e => setSelectedCharId(e.target.value)} className="w-full p-2 bg-secondary border border-border rounded-md">
-                            <option value="">Select a Character...</option>
-                            {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                        <select value={modelOverride} onChange={e => setModelOverride(e.target.value)} className="w-full p-2 bg-secondary border border-border rounded-md" disabled={!selectedCharId}>
-                            <option value="">Select a Model...</option>
-                            {apiConnections.filter(c => c.isActive).map(conn => (
-                                <optgroup key={conn.id} label={conn.name}>
-                                    {conn.models.map(m => <option key={m} value={m}>{m}</option>)}
-                                </optgroup>
-                            ))}
-                        </select>
-                        <textarea value={userInput} onChange={e => setUserInput(e.target.value)} placeholder="Enter user message..." className="w-full p-2 bg-secondary border border-border rounded-md" rows={4}/>
-                        
-                        <div className="p-2 bg-tertiary rounded-md">
-                            <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                <input type="checkbox" checked={forceFullData} onChange={e => setForceFullData(e.target.checked)} className="form-checkbox h-4 w-4 text-accent-primary bg-primary rounded"/>
-                                Force use of full data (ignore summary)
-                            </label>
-                        </div>
-
-                        <details className="bg-tertiary p-2 rounded-md">
-                            <summary className="text-sm cursor-pointer" onClick={() => setOverrideContext(c => !c)}>Override Context Fields</summary>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
-                            {allFields.map(field => (
-                                <label key={field} className="flex items-center space-x-2 text-text-primary text-sm">
-                                    <input type="checkbox" checked={tempIncludedFields.includes(field)} onChange={() => handleFieldToggle(field)} className="form-checkbox h-4 w-4 text-accent-primary bg-primary rounded"/>
-                                    <span className="capitalize">{field}</span>
-                                </label>
-                            ))}
-                            </div>
-                        </details>
-
-                        <button onClick={handleRunSimulation} disabled={isSimulating || !selectedCharId || !userInput || !modelOverride} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-accent-secondary text-white rounded-md disabled:bg-hover">
-                            {isSimulating && <SpinnerIcon className="w-5 h-5 animate-spin"/>}
-                            Run Simulation
-                        </button>
-                    </div>
-                </Section>
+        <div className="flex flex-col h-full">
+            <div className="flex-shrink-0 p-4 bg-secondary border-b border-border">
+                <button onClick={handleRunAllSimulations} disabled={isSimulating} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-accent-primary text-white font-bold text-lg rounded-md disabled:bg-hover">
+                    {isSimulating ? <SpinnerIcon className="w-6 h-6 animate-spin"/> : <SystemMonitorIcon className="w-6 h-6" />}
+                    Run All Active Simulations
+                </button>
+                 <p className="text-xs text-text-secondary text-center mt-2 lg:hidden">
+                    &larr; Scroll horizontally to view all simulation lanes &rarr;
+                </p>
             </div>
-            <div>
-                 <Section title="Live Flow Diagram">
-                    {simulationResults.length === 0 && !isSimulating && <p className="text-text-secondary text-center py-8">Run a simulation to see the data flow.</p>}
-                    {isSimulating && <div className="flex justify-center items-center gap-3 py-8 text-text-secondary"><SpinnerIcon className="w-6 h-6 animate-spin" /><span>Simulation in progress...</span></div>}
-                    <div className="space-y-2">
-                        {simulationResults.map((result, i) => (
-                             <React.Fragment key={i}>
-                                <FlowCard title={result.title} icon={result.icon} status={result.status} duration={result.duration}>
-                                    {result.data && <pre className="whitespace-pre-wrap bg-primary p-2 rounded mt-2 text-xs font-mono max-h-60 overflow-y-auto">{typeof result.data === 'object' ? JSON.stringify(result.data, null, 2) : String(result.data)}</pre>}
-                                </FlowCard>
-                                {i < simulationResults.length - 1 && <FlowArrow />}
-                            </React.Fragment>
-                        ))}
-                    </div>
-                </Section>
+            <div className="flex-1 overflow-x-auto">
+                <div className="flex gap-4 p-4">
+                    {simulations.map((sim, index) => {
+                        const character = characters.find(c => c.id === sim.config.selectedCharId);
+                        return (
+                        <div key={sim.id} className="bg-secondary p-4 rounded-lg border border-border flex flex-col gap-4 flex-shrink-0 w-[90vw] sm:w-96 lg:w-auto lg:flex-1">
+                            <h3 className="font-bold text-xl text-center">Lane {index + 1}</h3>
+                            {/* Setup */}
+                            <div className="space-y-2">
+                                <select value={sim.config.selectedCharId} onChange={e => handleConfigChange(sim.id, 'selectedCharId', e.target.value)} className="w-full p-2 bg-primary border border-border rounded-md">
+                                    <option value="">Select Character...</option>
+                                    {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                </select>
+                                <textarea value={sim.config.userInput} onChange={e => handleConfigChange(sim.id, 'userInput', e.target.value)} placeholder="User input..." className="w-full p-2 bg-primary border border-border rounded-md text-sm" rows={2}/>
+                            </div>
+                            {/* Advanced */}
+                            <details className="bg-primary rounded-md border border-border">
+                                <summary className="p-2 cursor-pointer text-sm font-semibold">Advanced Settings</summary>
+                                <div className="p-2 border-t border-border space-y-2 text-sm">
+                                    <label>Model Override: <select value={sim.config.modelOverride} onChange={e => handleConfigChange(sim.id, 'modelOverride', e.target.value)} className="w-full mt-1 p-1 bg-tertiary border border-border rounded-md text-xs"><option value="">Default</option>{apiConnections.map(c => <optgroup key={c.id} label={c.name}>{c.models.map(m => <option key={m} value={m}>{m}</option>)}</optgroup>)}</select></label>
+                                    <label>User Persona: <select value={sim.config.selectedUserId} onChange={e => handleConfigChange(sim.id, 'selectedUserId', e.target.value)} className="w-full mt-1 p-1 bg-tertiary border border-border rounded-md text-xs">{allUsers.map(u => <option key={u.id} value={u.id}>{u.profile.name}</option>)}</select></label>
+                                    <label className="flex items-center gap-2"><input type="checkbox" checked={sim.config.forceFullData} onChange={e => handleConfigChange(sim.id, 'forceFullData', e.target.checked)} /> Force Full Data</label>
+                                    <label className="flex items-center gap-2"><input type="checkbox" checked={sim.config.kidMode} onChange={e => handleConfigChange(sim.id, 'kidMode', e.target.checked)} /> Kid Mode</label>
+                                    <div><label>History Override (JSON): <textarea value={sim.config.historyOverride} onChange={e => handleConfigChange(sim.id, 'historyOverride', e.target.value)} className="w-full p-1 bg-tertiary border border-border rounded-md text-xs font-mono" rows={3} placeholder='[{"sender": "user", "text": "Hi"}]'/></label></div>
+                                    <div><label>Stats Override (JSON): <textarea value={sim.config.statsOverride} onChange={e => handleConfigChange(sim.id, 'statsOverride', e.target.value)} className="w-full p-1 bg-tertiary border border-border rounded-md text-xs font-mono" rows={2} placeholder={character?.stats.length ? 'e.g., {"stat-id": 50}' : 'No stats on this char'}/></label></div>
+                                    <div><label>Narrative State Override (JSON): <textarea value={sim.config.narrativeStateOverride} onChange={e => handleConfigChange(sim.id, 'narrativeStateOverride', e.target.value)} className="w-full p-1 bg-tertiary border border-border rounded-md text-xs font-mono" rows={2} placeholder='{"metBefore": true}'/></label></div>
+                                    <div><label>Haven Prompt Override: <textarea value={sim.config.havenPromptOverride} onChange={e => handleConfigChange(sim.id, 'havenPromptOverride', e.target.value)} className="w-full p-1 bg-tertiary border border-border rounded-md text-xs font-mono" rows={2} placeholder="Uses global setting if empty"/></label></div>
+                                    <div><label>BTH Prompt Override: <textarea value={sim.config.bthPromptOverride} onChange={e => handleConfigChange(sim.id, 'bthPromptOverride', e.target.value)} className="w-full p-1 bg-tertiary border border-border rounded-md text-xs font-mono" rows={2} placeholder="Uses global setting if empty"/></label></div>
+                                    <div><label>Kid Mode Prompt Override: <textarea value={sim.config.kidModePromptOverride} onChange={e => handleConfigChange(sim.id, 'kidModePromptOverride', e.target.value)} className="w-full p-1 bg-tertiary border border-border rounded-md text-xs font-mono" rows={2} placeholder="Uses global setting if empty"/></label></div>
+                                </div>
+                            </details>
+                            {/* Results */}
+                            <div className="flex-1 overflow-y-auto bg-primary p-2 rounded border border-border">
+                                {sim.isLoading && <div className="flex justify-center items-center gap-3 h-full text-text-secondary"><SpinnerIcon className="w-6 h-6 animate-spin" /><span>Simulating...</span></div>}
+                                {!sim.isLoading && !sim.results && <p className="text-text-secondary text-center text-sm py-4">Ready to simulate.</p>}
+                                <div className="space-y-2">
+                                {sim.results?.map((result, i) => (
+                                    <React.Fragment key={i}>
+                                        <FlowCard title={result.title} icon={result.icon} status={result.status} duration={result.duration}>
+                                            {result.data && <pre className="whitespace-pre-wrap bg-secondary p-2 rounded mt-2 text-xs font-mono max-h-60 overflow-y-auto">{typeof result.data === 'object' ? JSON.stringify(result.data, null, 2) : String(result.data)}</pre>}
+                                        </FlowCard>
+                                        {i < sim.results!.length - 1 && <FlowArrow />}
+                                    </React.Fragment>
+                                ))}
+                                </div>
+                            </div>
+                        </div>
+                    )})}
+                </div>
             </div>
         </div>
     );

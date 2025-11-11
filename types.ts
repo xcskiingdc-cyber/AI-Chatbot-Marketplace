@@ -218,7 +218,7 @@ export interface GlobalSettings {
 export interface AIContextSettings {
     includedFields: CharacterContextField[];
     historyLength: number;
-    maxResponseCharacters: number;
+    maxResponseTokens: number;
 }
 
 // Forum interfaces
@@ -272,6 +272,18 @@ export interface ApiConnection {
   baseUrl?: string;
   models: string[]; 
   isActive: boolean;
+}
+
+export type AITool = 
+  | 'imageGeneration'
+  | 'characterSummarization'
+  | 'narrativeSummarization'
+  | 'textToSpeech'
+  | 'textModeration'
+  | 'imageModeration';
+
+export interface AIToolSettings {
+  toolConnections: Record<AITool, string | null>; // Maps tool to ApiConnection.id
 }
 
 

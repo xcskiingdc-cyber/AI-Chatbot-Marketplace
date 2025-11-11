@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useContext, useRef, useMemo } from 'react';
 import { Character, CharacterStat, StatRule, ApiConnection } from '../types';
 import { saveImage } from '../services/dbService';
@@ -23,12 +24,29 @@ const categories = ["Fantasy", "Sci-Fi", "Romance", "Horror", "Adventure", "Myst
 
 const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existingCharacter, isUserAdult = false }) => {
   const auth = useContext(AuthContext);
-  const { apiConnections = [], findConnectionForModel } = auth || {};
+  const { apiConnections = [], findConnectionForModel, findConnectionForTool } = auth || {};
 
   const getDefaultModel = () => {
-    if (apiConnections.length > 0 && apiConnections[0].models.length > 0) {
-      return apiConnections[0].models[0];
+    // Prioritize gemini-2.5-flash if available in any active connection
+    const geminiFlashModel = apiConnections
+      .filter(c => c.isActive)
+      .flatMap(c => c.models)
+      .find(m => m === 'gemini-2.5-flash');
+
+    if (geminiFlashModel) {
+      return geminiFlashModel;
     }
+    
+    // Fallback to the first available model from an active connection
+    for (const conn of apiConnections) {
+        if (conn.isActive && conn.models.length > 0) {
+            const firstChatModel = conn.models.find(m => !m.includes('tts') && !m.includes('imagen'));
+            if (firstChatModel) {
+                return firstChatModel;
+            }
+        }
+    }
+
     return '';
   };
   
@@ -254,11 +272,10 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
   };
 
   const handleGenerateImage = async () => {
-    const imageGenerationModel = 'imagen-4.0-generate-001';
-    const imageConnection = findConnectionForModel ? findConnectionForModel(imageGenerationModel) : null;
+    const imageConnection = findConnectionForTool ? findConnectionForTool('imageGeneration') : null;
 
     if (!imageConnection) {
-        setGenerationError("No API connection with an image generation model (e.g., imagen-4.0-generate-001) found.");
+        setGenerationError("Image Generation tool is not configured. Please ask an administrator to set it up in the AI API Settings.");
         return;
     }
 
@@ -661,7 +678,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
             <button
                 type="button"
                 onClick={handleGenerateImage}
-                disabled={isGeneratingImage || !character.appearance.trim() || !findConnectionForModel || !findConnectionForModel('imagen-4.0-generate-001')}
+                disabled={isGeneratingImage || !character.appearance.trim() || !findConnectionForTool || !findConnectionForTool('imageGeneration')}
                 className="w-full px-4 py-2 bg-accent-secondary hover:bg-accent-secondary-hover text-white rounded-md transition-colors font-semibold disabled:bg-hover disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
                 {isGeneratingImage ? (
@@ -673,8 +690,8 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
                     'Generate Character Image'
                 )}
             </button>
-            {(!findConnectionForModel || !findConnectionForModel('imagen-4.0-generate-001')) && (
-                <p className="text-xs text-yellow-400 text-center mt-2">Image generation is disabled. No connection with an image model is configured.</p>
+            {(!findConnectionForTool || !findConnectionForTool('imageGeneration')) && (
+                <p className="text-xs text-yellow-400 text-center mt-2">Image generation is disabled. No connection is configured for this tool in AI API Settings.</p>
             )}
             
             {generationError && (

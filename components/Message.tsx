@@ -25,28 +25,37 @@ const Message: React.FC<MessageProps> = ({ message, character, user, onUpdate, o
   const formattedText = useMemo(() => {
     if (!message.text) return [];
     
-    const italicRegex = /(\*.*?\*)/g;
-    const quoteRegex = /(["].*?["])/g;
+    const nodes: React.ReactNode[] = [];
+    // Regex to find *italic* or "quoted" text. This approach is more robust than nested splits.
+    const regex = /(\*.*?\*)|(["].*?["])/gs;
+    let lastIndex = 0;
+    let match;
 
-    return message.text.split(italicRegex).map((segment, index) => {
-        if (segment.startsWith('*') && segment.endsWith('*')) {
-            // Italicized action/narration
-            return <em key={`italic-${index}`}>{segment.substring(1, segment.length - 1)}</em>;
-        } else if (segment) {
-            // Not an italicized part, might contain dialogue.
-            // Split this segment by quoted dialogue.
-            return segment.split(quoteRegex).map((subSegment, subIndex) => {
-                if (subSegment.startsWith('"') && subSegment.endsWith('"')) {
-                    // Quoted dialogue, make it bold.
-                    return <strong key={`bold-${index}-${subIndex}`}>{subSegment}</strong>;
-                } else {
-                    // Regular narration outside of italics or quotes.
-                    return <span key={`span-${index}-${subIndex}`}>{subSegment}</span>;
-                }
-            });
+    while ((match = regex.exec(message.text)) !== null) {
+        // Add the text before the match
+        if (match.index > lastIndex) {
+            nodes.push(<span key={`text-${lastIndex}`}>{message.text.substring(lastIndex, match.index)}</span>);
         }
-        return null; // Handle empty strings from split
-    });
+
+        const [fullMatch, italic, quote] = match;
+
+        if (italic) {
+            // It's an italic match for actions/narration
+            nodes.push(<em key={`italic-${match.index}`}>{italic.substring(1, italic.length - 1)}</em>);
+        } else if (quote) {
+            // It's a quote match for dialogue, render as plain span (no bold)
+            nodes.push(<span key={`quote-${match.index}`}>{quote}</span>);
+        }
+
+        lastIndex = regex.lastIndex;
+    }
+
+    // Add any remaining text after the last match
+    if (lastIndex < message.text.length) {
+        nodes.push(<span key={`text-${lastIndex}`}>{message.text.substring(lastIndex)}</span>);
+    }
+
+    return nodes;
   }, [message.text]);
 
   const handleSave = () => {

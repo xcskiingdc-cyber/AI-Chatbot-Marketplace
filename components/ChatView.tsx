@@ -41,7 +41,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const auth = useContext(AuthContext);
-  const { findConnectionForModel, apiConnections } = auth || {};
+  const { findConnectionForModel, apiConnections, findConnectionForTool } = auth || {};
 
   const userChatSettings = useMemo(() => {
     const defaultSettings: ChatSettings = {
@@ -182,9 +182,9 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   }, []);
 
   const ttsConnection = useMemo(() => {
-    if (!findConnectionForModel) return null;
-    return findConnectionForModel('gemini-2.5-flash-preview-tts');
-  }, [findConnectionForModel]);
+    if (!findConnectionForTool) return null;
+    return findConnectionForTool('textToSpeech');
+  }, [findConnectionForTool]);
 
 
   useEffect(() => {
@@ -195,7 +195,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   
   const playTTS = useCallback(async (text: string, messageId: string) => {
     if (!ttsConnection) {
-        alert("Text-to-speech is not available. No suitable API connection found.");
+        alert("Text-to-speech is not available. An administrator needs to configure it in the AI API Settings.");
         return;
     }
     if (activeTtsSourceRef.current && messageId === currentlyPlayingTtsId) {
@@ -385,8 +385,8 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   const narrativeState = auth?.currentUser ? auth.narrativeStates?.[auth.currentUser.id]?.[character.id] || {} : {};
 
   const summaryConnection = useMemo(() => {
-    if (!auth?.findConnectionForModel) return null;
-    return auth.findConnectionForModel('gemini-2.5-flash');
+    if (!auth?.findConnectionForTool) return null;
+    return auth.findConnectionForTool('narrativeSummarization');
   }, [auth]);
 
   const characterStats = useMemo(() => {
