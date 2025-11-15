@@ -1,28 +1,322 @@
+
 import { Character, ChatMessage, User, TTSVoiceName, GlobalSettings, AIContextSettings, CharacterStat, ApiConnection, CharacterContextField } from "../types";
-import { GoogleGenAI, Modality, Type, HarmCategory, HarmBlockThreshold, FunctionDeclaration, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, Modality, Type, GenerateContentResponse, Part, GenerateContentParameters, FunctionDeclaration } from "@google/genai";
+
+// Helper to get AI client
+const getAiClient = (connection: ApiConnection) => {
+    return new GoogleGenAI({ apiKey: connection.apiKey || process.env.API_KEY });
+};
 
 // Helper function to extract JSON from a string that might contain markdown, other text, or trailing commas.
 const extractJson = (text: string): string => {
-    let jsonString = text;
-
-    // 1. Look for markdown code block
+    // Regular expression to find a JSON block within triple backticks
     const jsonRegex = /```(json)?\s*([\s\S]*?)\s*```/;
     const match = text.match(jsonRegex);
+
+    // If a match is found, return the captured JSON string, otherwise return the original text
     if (match && match[2]) {
-        jsonString = match[2];
-    } else {
-        // 2. If no markdown, find content between first { and last }
-        const firstBrace = jsonString.indexOf('{');
-        const lastBrace = jsonString.lastIndexOf('}');
-        if (firstBrace !== -1 && lastBrace > firstBrace) {
-            jsonString = jsonString.substring(firstBrace, lastBrace + 1);
-        }
+        return match[2];
+    }
+    return text.trim();
+};
+
+export const generateCharacterImage = async (prompt: string, connection: ApiConnection): Promise<string | null> => {
+    if (connection.provider !== 'Gemini') {
+        throw new Error('Image generation is only supported with Gemini at the moment.');
+    }
+    const ai = getAiClient(connection);
+    const response = await ai.models.generateImages({
+        model: 'imagen-4.0-generate-001',
+        prompt: prompt,
+        config: {
+            numberOfImages: 1,
+            aspectRatio: "9:16",
+        },
+    });
+
+    if (response.generatedImages && response.generatedImages.length > 0) {
+        return response.generatedImages[0].image.imageBytes;
+    }
+    return null;
+};
+
+export const getTextToSpeech = async (text: string, voice: TTSVoiceName, connection: ApiConnection): Promise<string | null> => {
+    if (connection.provider !== 'Gemini') {
+        throw new Error('TTS is only supported with Gemini at the moment.');
+    }
+    const ai = getAiClient(connection);
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-preview-tts',
+        contents: [{ parts: [{ text: `Say with a normal, conversational tone: ${text}` }] }],
+        config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+                voiceConfig: {
+                    prebuiltVoiceConfig: { voiceName: voice },
+                },
+            },
+        },
+    });
+
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    return base64Audio || null;
+};
+
+export const analyzeContentWithGemini = async (
+    prompt: string,
+    content: { text?: string; imageBase64?: string; imageMimeType?: string },
+    connection: ApiConnection,
+    schema: any
+): Promise<string> => {
+    const ai = getAiClient(connection);
+    const parts: Part[] = [{ text: prompt }];
+
+    if (content.text) {
+        parts.push({ text: content.text });
+    }
+    if (content.imageBase64 && content.imageMimeType) {
+        parts.push({
+            inlineData: {
+                data: content.imageBase64,
+                mimeType: content.imageMimeType
+            }
+        });
     }
 
-    // 3. Attempt to fix common JSON issues like trailing commas.
-    const fixedJson = jsonString.replace(/,\s*([}\]])/g, '$1');
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: { parts: parts },
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: schema,
+        }
+    });
+
+    return response.text;
+};
+
+export const summarizeCharacterData = async (character: Character, connection: ApiConnection): Promise<Character['summary']> => {
+    const ai = getAiClient(connection);
+
+    const fieldsToSummarize: (keyof Character['summary'])[] = ['description', 'personality', 'story', 'situation', 'feeling', 'appearance', 'greeting'];
+
+    const prompt = `Summarize the following character fields into concise, third-person descriptions. Each summary should be 1-2 sentences. Maintain the core essence of each field.
     
-    return fixedJson;
+    Character Data:
+    ${fieldsToSummarize.map(field => `${field}: ${character[field as keyof Character]}`).join('\n')}
+    
+    Respond ONLY with a JSON object with keys for each field summarized.`;
+
+    const schemaProperties: Record<string, { type: Type, description: string }> = {};
+    fieldsToSummarize.forEach(field => {
+        if (field) {
+            schemaProperties[field] = { type: Type.STRING, description: `A concise summary of the character's ${field}.` };
+        }
+    });
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: schemaProperties,
+            }
+        }
+    });
+
+    try {
+        const result = JSON.parse(extractJson(response.text));
+        return result;
+    } catch (e) {
+        console.error("Failed to parse summary JSON:", response.text, e);
+        return {};
+    }
+};
+
+export const summarizeNarrativeState = async (narrativeState: any, characterName: string, connection: ApiConnection): Promise<string> => {
+    const ai = getAiClient(connection);
+    const prompt = `Summarize the following key-value pairs representing the current story state into a short, human-readable paragraph from a third-person narrator's perspective. Focus on the most important facts about the relationship and situation between the user and ${characterName}.
+    
+    Narrative State Data:
+    ${JSON.stringify(narrativeState, null, 2)}
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+    });
+    return response.text;
+};
+
+export const buildSystemPrompt = (
+    character: Character,
+    user: User,
+    globalSettings: GlobalSettings,
+    aiContextSettings: AIContextSettings,
+    isKidMode: boolean,
+    stats: Record<string, number>,
+    narrativeState: any,
+    historyForPrompt?: ChatMessage[],
+    promptOverrides?: { haven?: string; beyondTheHaven?: string; kidMode?: string }
+): string => {
+    let prompt = character.isBeyondTheHaven
+        ? (promptOverrides?.beyondTheHaven || globalSettings.beyondTheHavenPrompt || BEYOND_THE_HAVEN_PROMPT)
+        : (promptOverrides?.haven || globalSettings.havenPrompt || HAVEN_PROMPT);
+
+    if (isKidMode) {
+        prompt += `\n${promptOverrides?.kidMode || globalSettings.kidModePrompt || ''}`;
+    }
+
+    prompt = prompt.replace(/{{char}}/g, character.name).replace(/{{user}}/g, user.profile.name);
+
+    let characterSheet = '[Character Sheet]\n';
+    aiContextSettings.includedFields.forEach(field => {
+        const fieldValue = character[field as keyof Character];
+        if (fieldValue && typeof fieldValue === 'string') {
+            const useSummary = character.summary && character.summary[field as keyof Character['summary']] && field !== 'greeting';
+            const finalValue = useSummary ? character.summary![field as keyof Character['summary']] : fieldValue;
+            characterSheet += `${field}: ${finalValue}\n`;
+        }
+    });
+
+    if (character.stats && character.stats.length > 0) {
+        characterSheet += '\n[Character Stats]\n';
+        character.stats.forEach(stat => {
+            characterSheet += `${stat.name} (Value: ${stats[stat.id] ?? stat.initialValue}, Min: ${stat.min}, Max: ${stat.max}): ${stat.behaviorDescription}\n`;
+            if (stat.increaseRules.length > 0) characterSheet += 'Increase Rules:\n' + stat.increaseRules.map(r => `- ${r.description} (+${r.value})`).join('\n') + '\n';
+            if (stat.decreaseRules.length > 0) characterSheet += 'Decrease Rules:\n' + stat.decreaseRules.map(r => `- ${r.description} (-${r.value})`).join('\n') + '\n';
+        });
+    }
+
+    if (narrativeState && Object.keys(narrativeState).length > 0) {
+        characterSheet += '\n[Narrative State]\n';
+        characterSheet += `This is a JSON object representing the current state of the story and relationship between {{char}} and {{user}}. Use it to maintain continuity. Update it using the 'update_narrative_state' tool when significant events occur (e.g., meeting for the first time, a promise is made).\n`;
+        characterSheet += JSON.stringify(narrativeState, null, 2);
+    }
+
+    prompt += `\n\n${characterSheet}`;
+
+    if (historyForPrompt) {
+        prompt += '\n\n[Chat History]\n' + historyForPrompt.map(msg => `${msg.sender === 'bot' ? character.name : user.profile.name}: ${msg.text}`).join('\n');
+    }
+
+    return prompt;
+};
+
+
+interface StatUpdate {
+    statId: string;
+    valueChange: number;
+    reason: string;
+}
+
+export const generateChatResponseWithStats = async (
+    character: Character,
+    history: ChatMessage[],
+    user: User,
+    globalSettings: GlobalSettings,
+    aiContextSettings: AIContextSettings,
+    isKidMode: boolean,
+    modelName: string,
+    currentStats: Record<string, number>,
+    currentNarrativeState: any,
+    connection: ApiConnection,
+    promptOverrides?: { haven?: string; beyondTheHaven?: string; kidMode?: string }
+): Promise<{ statChanges: StatUpdate[], responseText: string, newNarrativeState: any }> => {
+
+    const ai = getAiClient(connection);
+
+    const historyForApi = history.slice(-aiContextSettings.historyLength).map(msg => ({
+        role: msg.sender === 'bot' ? 'model' : 'user',
+        parts: [{ text: msg.text }]
+    }));
+
+    const systemPrompt = buildSystemPrompt(character, user, globalSettings, aiContextSettings, isKidMode, currentStats, currentNarrativeState, undefined, promptOverrides);
+
+    const tools: FunctionDeclaration[] = [];
+    if (character.stats && character.stats.length > 0) {
+        tools.push({
+            name: 'update_stats',
+            description: "Update one or more of the character's stats based on the last user interaction.",
+            parameters: {
+                type: Type.OBJECT,
+                properties: {
+                    updates: {
+                        type: Type.ARRAY,
+                        description: "An array of stat updates.",
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                statId: { type: Type.STRING, description: `The ID of the stat to update. Available IDs: ${character.stats.map(s => s.id).join(', ')}` },
+                                valueChange: { type: Type.NUMBER, description: "The amount to change the stat by (e.g., 5, -10)." },
+                                reason: { type: Type.STRING, description: "A brief reason for the change, based on the user's action." }
+                            },
+                            required: ['statId', 'valueChange', 'reason']
+                        }
+                    }
+                },
+                required: ['updates']
+            }
+        });
+    }
+
+    tools.push({
+        name: 'update_narrative_state',
+        description: "Update the narrative state JSON object with new or changed facts about the story. Use this to remember important events, character relationships, or environmental changes.",
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                newState: {
+                    type: Type.OBJECT,
+                    description: "An object containing the new or updated key-value pairs for the narrative state. Only include fields that have changed or are new. Do not include existing, unchanged fields.",
+                }
+            },
+            required: ['newState']
+        }
+    });
+
+    try {
+        const response = await ai.models.generateContent({
+            model: modelName,
+            contents: historyForApi,
+            config: {
+                systemInstruction: systemPrompt,
+            },
+            ...(tools.length > 0 && { tools: [{ functionDeclarations: tools }] }),
+        });
+        
+        const responseText = response.text;
+        const functionCalls = response.functionCalls;
+
+        let statChanges: StatUpdate[] = [];
+        let newNarrativeState = null;
+
+        if (functionCalls && functionCalls.length > 0) {
+            for (const funcCall of functionCalls) {
+                if (funcCall.name === 'update_stats' && funcCall.args.updates) {
+                    statChanges = funcCall.args.updates as StatUpdate[];
+                }
+                if (funcCall.name === 'update_narrative_state' && funcCall.args.newState) {
+                    newNarrativeState = funcCall.args.newState;
+                }
+            }
+        }
+
+        return {
+            statChanges,
+            responseText: responseText.trim(),
+            newNarrativeState,
+        };
+
+    } catch (e) {
+        console.error("Error in generateChatResponseWithStats:", e);
+        if (e instanceof Error) {
+            return { statChanges: [], responseText: `Error: ${e.message}`, newNarrativeState: null };
+        }
+        return { statChanges: [], responseText: "An unknown error occurred.", newNarrativeState: null };
+    }
 };
 
 
@@ -53,393 +347,3 @@ Reflect stat changes through actions and dialogue.
 After generating the narrative response, call \`update_stats\` with changes.
 The user should NEVER see the JSON payload.
 If narrative state changes, call \`update_narrative_state\` with the updated JSON object (hidden from user).`;
-
-export const buildSystemPrompt = (
-    character: Character,
-    user: User,
-    globalSettings: GlobalSettings,
-    aiContextSettings: AIContextSettings,
-    isKidMode: boolean,
-    characterStats: Record<string, number> | null,
-    narrativeState: any | null,
-    overrideIncludedFields?: CharacterContextField[],
-    promptOverrides?: { haven?: string, beyondTheHaven?: string, kidMode?: string }
-): string => {
-    let prompt = character.isBeyondTheHaven 
-        ? (promptOverrides?.beyondTheHaven || globalSettings.beyondTheHavenPrompt || BEYOND_THE_HAVEN_PROMPT) 
-        : (promptOverrides?.haven || globalSettings.havenPrompt || HAVEN_PROMPT);
-
-    const wordCount = Math.floor(aiContextSettings.maxResponseTokens * 0.7);
-    if (wordCount > 10) {
-        const instruction = ` Keep your response concise and ensure it is a complete thought, aiming for a length of about ${wordCount} words.`;
-        const insertionPoint = "Write {{char}}'s next reply in a fictional role-play between {{char}} and {{user}}.";
-        prompt = prompt.replace(insertionPoint, insertionPoint + instruction);
-    }
-
-    if (isKidMode) {
-        const kidPrompt = promptOverrides?.kidMode || globalSettings.kidModePrompt;
-        if (kidPrompt) {
-            prompt += `\n${kidPrompt}`;
-        }
-    }
-
-    prompt = prompt.replace(/{{char}}/g, character.name).replace(/{{user}}/g, user.profile.name);
-
-    let characterSheet = `\n\nHere is the character sheet for {{char}}:\n`;
-    
-    const fieldsToInclude = overrideIncludedFields || aiContextSettings.includedFields;
-    
-    const useSummary = character.summary && Object.keys(character.summary).length > 0;
-    
-    const effectiveCharacterData = useSummary ? { ...character, ...character.summary } : character;
-
-
-    fieldsToInclude.forEach(field => {
-        const value = effectiveCharacterData[field as keyof typeof effectiveCharacterData];
-        if (value) {
-            characterSheet += `\n**${field.charAt(0).toUpperCase() + field.slice(1)}:** ${value}`;
-        }
-    });
-
-    if (character.stats.length > 0 && characterStats) {
-        characterSheet += '\n\n**Character Stats:**\n';
-        character.stats.forEach(stat => {
-            characterSheet += `- **${stat.name} (ID: \`${stat.id}\`, Value: ${characterStats[stat.id] ?? stat.initialValue}/${stat.max}):** ${stat.behaviorDescription}\n`;
-            if (stat.increaseRules.length > 0) {
-                 characterSheet += `  - Increases when: ${stat.increaseRules.map(r => r.description).join(', ')}\n`;
-            }
-            if (stat.decreaseRules.length > 0) {
-                 characterSheet += `  - Decreases when: ${stat.decreaseRules.map(r => r.description).join(', ')}\n`;
-            }
-        });
-    }
-
-    if (narrativeState && Object.keys(narrativeState).length > 0) {
-        characterSheet += '\n\n**Current Narrative State (JSON object, for AI memory):**\n';
-        characterSheet += `\`\`\`json\n${JSON.stringify(narrativeState, null, 2)}\n\`\`\``;
-    }
-
-    return prompt + characterSheet.replace(/{{char}}/g, character.name);
-};
-
-export const generateCharacterImage = async (prompt: string, connection: ApiConnection): Promise<string | null> => {
-    const ai = new GoogleGenAI({ apiKey: connection.apiKey });
-    const response = await ai.models.generateImages({
-        model: 'imagen-4.0-generate-001',
-        prompt: prompt,
-        config: {
-          numberOfImages: 1,
-          outputMimeType: 'image/png',
-          aspectRatio: '9:16',
-        },
-    });
-
-    if (response.generatedImages && response.generatedImages.length > 0) {
-        return response.generatedImages[0].image.imageBytes;
-    }
-    return null;
-};
-
-export async function* getChatResponseStream(
-  character: Character,
-  history: ChatMessage[],
-  user: User,
-  globalSettings: GlobalSettings,
-  aiContextSettings: AIContextSettings,
-  isKidMode: boolean,
-  modelName: string,
-  connection: ApiConnection,
-): AsyncGenerator<string> {
-    const systemPrompt = buildSystemPrompt(character, user, globalSettings, aiContextSettings, isKidMode, null, null);
-    
-    if (connection.provider !== 'Gemini') {
-        yield "Error: Streaming is only supported for Gemini models in this application.";
-        return;
-    }
-    
-    try {
-        const ai = new GoogleGenAI({ apiKey: connection.apiKey });
-        const contents = history.map(msg => ({
-            role: msg.sender === 'user' ? 'user' : 'model',
-            parts: [{ text: msg.text }]
-        }));
-
-        const responseStream = await ai.models.generateContentStream({
-            model: modelName,
-            contents: contents,
-            config: { 
-                systemInstruction: systemPrompt,
-            }
-        });
-
-        for await (const chunk of responseStream) {
-            if (chunk.text) {
-                yield chunk.text;
-            }
-        }
-    } catch (error) {
-        console.error("AI Streaming Error:", error);
-        if (error instanceof Error) {
-            yield `Error: ${error.message}`;
-        } else {
-            yield `Error: An unknown streaming error occurred.`;
-        }
-    }
-}
-
-export const getTextToSpeech = async (text: string, voice: TTSVoiceName, connection: ApiConnection): Promise<string | null> => {
-     if (connection.provider !== 'Gemini') {
-        throw new Error('TTS is only available for Gemini models.');
-    }
-    
-    const ai = new GoogleGenAI({ apiKey: connection.apiKey });
-    
-    try {
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash-preview-tts",
-            contents: [{ parts: [{ text: text }] }],
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: {
-                      prebuiltVoiceConfig: { voiceName: voice },
-                    },
-                },
-            }
-        });
-        
-        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        
-        if (base64Audio) {
-            return base64Audio;
-        }
-        return null;
-    } catch(error) {
-        console.error("Text-to-speech generation failed:", error);
-        throw error;
-    }
-};
-
-export const summarizeCharacterData = async (character: Character, connection: ApiConnection): Promise<Character['summary']> => {
-    const fieldsToSummarize: (keyof Character)[] = ['description', 'personality', 'story', 'situation', 'feeling', 'appearance', 'greeting'];
-    const contentToSummarize = fieldsToSummarize
-        .map(field => `${field}: ${character[field]}`)
-        .join('\n');
-    
-    const prompt = `Summarize each of the following fields for the character "${character.name}". Keep the summaries concise (1-2 sentences each) while retaining the core essence and tone. Respond ONLY with a JSON object with keys for each summarized field. The keys must be: "description", "personality", "story", "situation", "feeling", "appearance", "greeting".\n\n${contentToSummarize}`;
-
-    if (connection.provider !== 'Gemini') {
-        console.warn('Summarization is only configured for Gemini. Skipping.');
-        return {};
-    }
-
-    try {
-        const ai = new GoogleGenAI({ apiKey: connection.apiKey });
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: { responseMimeType: 'application/json' }
-        });
-        
-        const jsonText = extractJson(response.text);
-        return JSON.parse(jsonText);
-
-    } catch(error) {
-        console.error("Failed to summarize character data:", error);
-        throw error;
-    }
-};
-
-export const summarizeNarrativeState = async (narrativeState: any, characterName: string, connection: ApiConnection): Promise<string> => {
-    const prompt = `The following JSON object represents the current state of a story with a character named ${characterName}. Summarize it into a concise, human-readable paragraph (like a journal entry) from the perspective of an observer. Focus on the most important facts, relationships, and events.\n\nJSON State:\n${JSON.stringify(narrativeState, null, 2)}`;
-    
-    if (connection.provider !== 'Gemini') {
-        return "Summarization is only available for Gemini models.";
-    }
-
-    try {
-        const ai = new GoogleGenAI({ apiKey: connection.apiKey });
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
-        return response.text;
-    } catch(error) {
-        console.error("Failed to summarize narrative state:", error);
-        return "Error generating summary.";
-    }
-};
-
-export const analyzeContentWithGemini = async (systemPrompt: string, content: { text?: string, imageBase64?: string, imageMimeType?: string }, connection: ApiConnection): Promise<string> => {
-    if (connection.provider !== 'Gemini') {
-        throw new Error('This function is only for Gemini models');
-    }
-
-    const ai = new GoogleGenAI({ apiKey: connection.apiKey });
-    
-    const parts = [];
-    if (content.text) {
-        parts.push({ text: content.text });
-    }
-    if (content.imageBase64 && content.imageMimeType) {
-        parts.push({
-            inlineData: {
-                data: content.imageBase64,
-                mimeType: content.imageMimeType
-            }
-        });
-    }
-
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: { parts: parts },
-        config: { systemInstruction: systemPrompt },
-        safetySettings: [
-            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-            { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-        ]
-    });
-    
-    return response.text;
-};
-
-export const generateChatResponseWithStats = async (
-  character: Character,
-  history: ChatMessage[],
-  user: User,
-  globalSettings: GlobalSettings,
-  aiContextSettings: AIContextSettings,
-  isKidMode: boolean,
-  modelName: string,
-  characterStats: Record<string, number> | null,
-  narrativeState: any | null,
-  connection: ApiConnection,
-  promptOverrides?: { haven?: string, beyondTheHaven?: string, kidMode?: string }
-): Promise<{ statChanges: any[], responseText: string, newNarrativeState: any | null }> => {
-
-    const systemPrompt = buildSystemPrompt(character, user, globalSettings, aiContextSettings, isKidMode, characterStats, narrativeState, undefined, promptOverrides);
-    
-    const updateStatsTool: FunctionDeclaration = {
-        name: 'update_stats',
-        description: "Updates the character's numerical stats based on the conversation.",
-        parameters: {
-            type: Type.OBJECT,
-            properties: {
-                updates: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            statId: { type: Type.STRING, description: 'The ID of the stat to update.' },
-                            valueChange: { type: Type.NUMBER, description: 'The amount to change the stat by (e.g., 5 or -10).' },
-                        },
-                        required: ['statId', 'valueChange'],
-                    }
-                }
-            },
-            required: ['updates'],
-        }
-    };
-    
-    const updateNarrativeStateTool: FunctionDeclaration = {
-        name: 'update_narrative_state',
-        description: 'Updates the JSON object tracking the narrative state of the story. Use this to remember important events, character relationships, inventory, or environmental changes. The object is passed back in the next system prompt, so keep it concise.',
-        parameters: {
-            type: Type.OBJECT,
-            properties: {
-                newState: {
-                    type: Type.OBJECT,
-                    description: 'The complete, updated JSON object representing the new narrative state. This replaces the old state entirely.',
-                }
-            },
-            required: ['newState'],
-        }
-    };
-    
-    const tools = [{ functionDeclarations: [updateStatsTool, updateNarrativeStateTool] }];
-
-    try {
-        if (connection.provider === 'Gemini') {
-            const ai = new GoogleGenAI({ apiKey: connection.apiKey });
-            
-            const contents = history.map(msg => ({
-                role: msg.sender === 'user' ? 'user' : 'model',
-                parts: [{ text: msg.text }]
-            }));
-
-            const result: GenerateContentResponse = await ai.models.generateContent({
-                model: modelName,
-                contents: contents,
-                config: {
-                    systemInstruction: systemPrompt,
-                    tools: tools,
-                },
-                safetySettings: [
-                    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                ]
-            });
-
-            const response = result;
-
-            let responseText = response.text || '';
-            let statChanges: any[] = [];
-            let newNarrativeState: any | null = null;
-            
-            if (response.functionCalls && response.functionCalls.length > 0) {
-                for (const fc of response.functionCalls) {
-                    if (fc.name === 'update_stats' && fc.args.updates) {
-                        statChanges = fc.args.updates;
-                    }
-                    if (fc.name === 'update_narrative_state' && fc.args.newState) {
-                        newNarrativeState = fc.args.newState;
-                    }
-                }
-            }
-
-            return { responseText, statChanges, newNarrativeState };
-
-        } else { // OpenAI compatible
-            const url = new URL('chat/completions', connection.baseUrl.endsWith('/') ? connection.baseUrl : `${connection.baseUrl}/`).toString();
-            const headers = {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${connection.apiKey}`
-            };
-
-            const body = {
-                model: modelName,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    ...history.map(msg => ({ role: msg.sender === 'user' ? 'user' : 'assistant', content: msg.text }))
-                ],
-            };
-
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify(body),
-            });
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`OpenAI API Error: ${response.status} ${response.statusText} - ${errorText}`);
-            }
-
-            const data = await response.json();
-            const responseText = data.choices[0]?.message?.content || '';
-
-            return { responseText, statChanges: [], newNarrativeState: null };
-        }
-
-    } catch (error) {
-        console.error("AI Service Error:", error);
-        if (error instanceof Error) {
-            return { responseText: `Error: ${error.message}`, statChanges: [], newNarrativeState: null };
-        }
-        return { responseText: `Error: An unknown error occurred.`, statChanges: [], newNarrativeState: null };
-    }
-};

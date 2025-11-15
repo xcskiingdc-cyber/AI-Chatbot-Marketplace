@@ -1,16 +1,14 @@
 
+
 import React from 'react';
-import useIndexedDBImage from '../hooks/useIndexedDBImage';
 
 interface AvatarProps extends React.ImgHTMLAttributes<HTMLImageElement> {
-  imageId: string;
+  imageId: string | null | undefined;
   alt: string;
 }
 
 const Avatar: React.FC<AvatarProps> = ({ imageId, alt, ...props }) => {
-    const imageUrl = useIndexedDBImage(imageId);
-
-    if (!imageUrl) {
+    if (!imageId) {
         return (
             <div 
                 className={`${props.className || ''} bg-tertiary animate-pulse`}
@@ -24,7 +22,7 @@ const Avatar: React.FC<AvatarProps> = ({ imageId, alt, ...props }) => {
 
     return (
         <img
-            src={imageUrl}
+            src={imageId}
             alt={alt}
             {...props}
         />

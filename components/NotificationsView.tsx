@@ -1,13 +1,8 @@
-
-
-
-
 import React, { useEffect, useState, useMemo, useContext, useRef } from 'react';
 import type { User, AppView, Character, Notification, DMConversation, DirectMessage } from '../types';
 import { BellIcon, MessageIcon, SendIcon, UploadIcon, CloseIcon } from './Icons';
 import { AuthContext } from '../context/AuthContext';
 import Avatar from './Avatar';
-import useIndexedDBImage from '../hooks/useIndexedDBImage';
 
 const ImagePreview: React.FC<{ src: string; onRemove: () => void }> = ({ src, onRemove }) => (
     <div className="relative inline-block m-2">
@@ -18,8 +13,9 @@ const ImagePreview: React.FC<{ src: string; onRemove: () => void }> = ({ src, on
     </div>
 );
 
+// FIX: Remove usage of deprecated `useIndexedDBImage` hook.
 const DMImage: React.FC<{ imageId: string }> = ({ imageId }) => {
-    const imageUrl = useIndexedDBImage(imageId);
+    const imageUrl = imageId;
     if (!imageUrl) return <div className="w-48 h-32 bg-tertiary animate-pulse rounded-md mt-2" />;
     return (
         <a href={imageUrl} target="_blank" rel="noopener noreferrer">

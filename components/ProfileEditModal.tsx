@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../types';
 import { CloseIcon, UploadIcon, DeleteIcon } from './Icons';
-import { saveImage } from '../services/dbService';
 
 interface ProfileEditModalProps {
   userProfile: UserProfile;
-  onSave: (profile: UserProfile) => void;
+  onSave: (profile: UserProfile, avatarFile: File | null) => void;
   onCancel: () => void;
 }
 
@@ -57,20 +56,13 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
     e.preventDefault();
     let finalProfileData = { ...profile };
 
-    if (selectedFile) {
-        try {
-            const imageId = crypto.randomUUID();
-            await saveImage(imageId, selectedFile);
-            finalProfileData.avatarUrl = imageId;
-        } catch (error) {
-            console.error("Failed to save profile image:", error);
-            alert("Error saving profile picture. Please try again.");
-            return;
-        }
-    } else if (previewUrl === null) {
+    // The logic to save the image and set the avatarUrl is now handled in AuthContext.
+    // We just pass the selectedFile to the onSave handler.
+    if (previewUrl === null) {
       finalProfileData.avatarUrl = `https://api.dicebear.com/8.x/initials/svg?seed=${profile.name}`;
     }
-    onSave(finalProfileData);
+    
+    onSave(finalProfileData, selectedFile);
   };
   
   const formFieldClasses = "w-full p-2 bg-secondary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-primary text-text-primary";

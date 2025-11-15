@@ -1,8 +1,3 @@
-
-
-
-
-
 import React, { useState, useContext, useMemo, useEffect, useCallback, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { User, Character, Report, Ticket, AIAlert, DMConversation, DirectMessage, TicketStatus, Comment, UserType, TicketFolder, DMFolder, Notification, AIAlertStatus, AppView, ForumThread, ForumPost } from '../types';
@@ -10,7 +5,6 @@ import ConfirmationModal from './ConfirmationModal';
 import ProfileEditModal from './ProfileEditModal';
 import Avatar from './Avatar';
 import { SendIcon, TicketIcon, PlusIcon, UploadIcon, CloseIcon, ThumbsUpIcon, ThumbsDownIcon } from './Icons';
-import useIndexedDBImage from '../hooks/useIndexedDBImage';
 import ForumModerationTab from './ForumModerationTab';
 
 interface DmUserContext {
@@ -342,7 +336,7 @@ const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelec
     }, [aiAlerts, statusFilter, selectedFolderId, sortOrder]);
 
     const AlertImage: React.FC<{imageId: string}> = ({imageId}) => {
-        const imageUrl = useIndexedDBImage(imageId);
+        const imageUrl = imageId;
         return imageUrl ? <img src={imageUrl} className="w-32 h-32 object-cover rounded-md mt-2" alt="Flagged content" /> : <div className="w-32 h-32 bg-tertiary rounded-md mt-2 animate-pulse" />;
     };
 
@@ -713,8 +707,9 @@ const ImagePreview: React.FC<{ src: string; onRemove: () => void }> = ({ src, on
     </div>
 );
 
+// FIX: Remove usage of deprecated `useIndexedDBImage` hook.
 const DMImage: React.FC<{ imageId: string }> = ({ imageId }) => {
-    const imageUrl = useIndexedDBImage(imageId);
+    const imageUrl = imageId;
     if (!imageUrl) return <div className="w-48 h-32 bg-tertiary animate-pulse rounded-md mt-2" />;
     return (
         <a href={imageUrl} target="_blank" rel="noopener noreferrer">

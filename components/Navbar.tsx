@@ -118,7 +118,7 @@ const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => 
                  {isMobileMenuOpen ? <CloseIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}
              </button>
             <button onClick={() => setView({ type: 'HOME' })} className="flex-shrink-0">
-              <img src="/logo.png" alt="HereHaven Logo" className="h-12" />
+              <h1 className="text-2xl font-bold font-serif">HereHaven</h1>
             </button>
             <nav className="hidden md:flex space-x-1">
               {renderNavLinks()}

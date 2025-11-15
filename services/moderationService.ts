@@ -3,8 +3,30 @@ import { fileToBase64 } from '../utils/imageUtils';
 import { ApiConnection } from '../types';
 
 const TEXT_MODERATION_PROMPT = `You are an AI content moderator. Analyze the following text content from a user. Check for violations in these categories: underage-themes, racism, bullying, non-consensual-sexual-acts. Respond ONLY with a JSON object. The JSON should have 'isViolation' (boolean), 'category' (string from the list or null), 'confidence' (number 0-1), 'flaggedText' (the specific text snippet that is problematic, or null), and 'explanation' (a brief, one-sentence explanation of why the text was flagged, or null).`;
+const textModSchema = {
+    type: 'OBJECT',
+    properties: {
+        isViolation: { type: 'BOOLEAN' },
+        category: { type: 'STRING' },
+        confidence: { type: 'NUMBER' },
+        flaggedText: { type: 'STRING' },
+        explanation: { type: 'STRING' },
+    },
+    required: ['isViolation', 'confidence'],
+};
 
 const IMAGE_MODERATION_PROMPT = `You are an AI content moderator. Analyze the following image. Check for violations in these categories: explicit-nudity, suggestive-content, violence, hate-symbols. Respond ONLY with a JSON object. The JSON should have 'isViolation' (boolean), 'category' (string from the list or null), 'confidence' (number 0-1), and 'explanation' (a brief, one-sentence explanation of why the image was flagged, or null).`;
+const imageModSchema = {
+    type: 'OBJECT',
+    properties: {
+        isViolation: { type: 'BOOLEAN' },
+        category: { type: 'STRING' },
+        confidence: { type: 'NUMBER' },
+        explanation: { type: 'STRING' },
+    },
+    required: ['isViolation', 'confidence'],
+};
+
 
 interface ModerationResult {
     isViolation: boolean;
@@ -30,7 +52,7 @@ export const scanText = async (text: string, activeConnection: ApiConnection): P
     if (!text.trim()) return null;
 
     try {
-        const resultJson = await analyzeContentWithGemini(TEXT_MODERATION_PROMPT, { text }, activeConnection);
+        const resultJson = await analyzeContentWithGemini(TEXT_MODERATION_PROMPT, { text }, activeConnection, textModSchema);
         const cleanedJson = extractJson(resultJson);
         const result = JSON.parse(cleanedJson);
         return result.isViolation ? result : null;
@@ -50,7 +72,7 @@ export const scanImage = async (imageBlob: Blob, activeConnection: ApiConnection
         const resultJson = await analyzeContentWithGemini(IMAGE_MODERATION_PROMPT, { 
             imageBase64: base64String, 
             imageMimeType: imageBlob.type 
-        }, activeConnection);
+        }, activeConnection, imageModSchema);
         const cleanedJson = extractJson(resultJson);
         const result = JSON.parse(cleanedJson);
         return result.isViolation ? result : null;

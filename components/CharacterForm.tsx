@@ -1,8 +1,6 @@
 
-
 import React, { useState, useEffect, useContext, useRef, useMemo } from 'react';
 import { Character, CharacterStat, StatRule, ApiConnection } from '../types';
-import { saveImage } from '../services/dbService';
 import { UploadIcon, DeleteIcon, QuestionMarkCircleIcon, SpinnerIcon, RefreshIcon, CloseIcon, PlusIcon } from './Icons';
 import { AuthContext } from '../context/AuthContext';
 import CharacterHelpModal from './CharacterHelpModal';
@@ -200,18 +198,9 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
     
     let finalCharacterData: any = { ...character, isSilencedByAdmin: existingCharacter?.isSilencedByAdmin || false };
 
-    if (selectedFile) {
-        try {
-            const imageId = crypto.randomUUID();
-            await saveImage(imageId, selectedFile);
-            finalCharacterData.avatarUrl = imageId;
-        } catch (error) {
-            console.error("Failed to save image:", error);
-            alert("Error saving character avatar. Please try again.");
-            setIsSaving(false);
-            return;
-        }
-    } else if (previewUrl === null) {
+    // The logic to save the image and set the avatarUrl is now handled in AuthContext.
+    // We just pass the selectedFile to the onSave handler.
+    if (previewUrl === null) { // This means the user removed the avatar
         finalCharacterData.avatarUrl = DEFAULT_CHARACTER_AVATAR;
     }
     
