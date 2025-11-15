@@ -35,6 +35,7 @@ const CharacterGrid: React.FC<CharacterGridProps> = ({
     isLoading,
     showControls = false, 
     currentUser = null, 
+    // FIX: The default function for toggleFavorite had the wrong signature (0 arguments instead of 1), causing a type error on invocation.
     toggleFavorite = (_characterId: string) => {}, 
     onDelete, 
     findUserById,

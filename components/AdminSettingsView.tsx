@@ -480,4 +480,152 @@ const UserManagementTab: React.FC = () => {
                                     {user.isSilenced && <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-900/50 text-yellow-300">Silenced</span>}
                                     {!user.isSilenced && <span className="px-2 py-1 text-xs font-semibold rounded-full bg-success/20 text-success">Active</span>}
                                 </td>
-                                <td className="px-4
+                                <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium relative">
+                                    {user.id !== currentUser?.id && user.role !== 'Admin' && (
+                                        <button onClick={() => setOpenMenu(openMenu === user.id ? null : user.id)} className="text-text-secondary hover:text-text-primary">
+                                            &#x22EE; {/* Vertical ellipsis */}
+                                        </button>
+                                    )}
+                                    {openMenu === user.id && (
+                                        <div ref={menuRef} className="absolute right-0 mt-2 w-48 origin-top-right bg-primary rounded-md shadow-lg ring-1 ring-black ring-opacity-5 z-10 border border-border">
+                                            <div className="py-1" role="menu" aria-orientation="vertical">
+                                                <button onClick={() => { setUserToEdit(user); setOpenMenu(null); }} className="block w-full text-left px-4 py-2 text-sm text-text-secondary hover:bg-hover">Edit Profile</button>
+                                                <div className="px-4 py-2 text-xs text-text-secondary">Set Type:</div>
+                                                {userTypes.map(type => (
+                                                    <button key={type} onClick={() => { updateUserType(user.id, type); setOpenMenu(null); }} className="block w-full text-left px-4 py-2 text-sm text-text-secondary hover:bg-hover">{user.userType === type ? '✓ ' : ''}{type}</button>
+                                                ))}
+                                                <div className="border-t border-border my-1"></div>
+                                                <div className="px-4 py-2 text-xs text-text-secondary">Set Role:</div>
+                                                {userRoles.map(role => (
+                                                    <button key={role} onClick={() => { updateUserRole(user.id, role); setOpenMenu(null); }} className="block w-full text-left px-4 py-2 text-sm text-text-secondary hover:bg-hover">{user.role === role ? '✓ ' : ''}{role}</button>
+                                                ))}
+                                                <div className="border-t border-border my-1"></div>
+                                                <button onClick={() => { silenceUser(user.id, !user.isSilenced); setOpenMenu(null); }} className="block w-full text-left px-4 py-2 text-sm text-yellow-400 hover:bg-hover">{user.isSilenced ? 'Unsilence' : 'Silence'} User</button>
+                                                <button onClick={() => { setUserToDelete(user); setOpenMenu(null); }} className="block w-full text-left px-4 py-2 text-sm text-danger hover:bg-hover">Delete User</button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            {userToEdit && (
+                <ProfileEditModal 
+                    userProfile={userToEdit.profile} 
+                    onSave={handleSaveProfile} 
+                    onCancel={() => setUserToEdit(null)} 
+                />
+            )}
+            {userToDelete && (
+                <ConfirmationModal 
+                    title="Delete User?"
+                    message={`Are you sure you want to permanently delete user "${userToDelete.profile.name}"? This action cannot be undone.`}
+                    onConfirm={handleConfirmDelete}
+                    onCancel={() => setUserToDelete(null)}
+                />
+            )}
+        </div>
+    );
+};
+
+const ContentModerationTab: React.FC<{setView: (view: AppView) => void}> = ({setView}) => {
+    const auth = useContext(AuthContext);
+    const [filter, setFilter] = useState('');
+    const [visibilityFilter, setVisibilityFilter] = useState<'all' | 'public' | 'private'>('all');
+    const [charToDelete, setCharToDelete] = useState<Character | null>(null);
+
+    if (!auth) return null;
+
+    const { characters = [], findUserById, silenceCharacter, deleteCharacter } = auth;
+
+    const filteredCharacters = useMemo(() => {
+        const lowerFilter = filter.toLowerCase();
+        return characters.filter(c => {
+            if (visibilityFilter === 'public' && !c.isPublic) return false;
+            if (visibilityFilter === 'private' && c.isPublic) return false;
+            if (lowerFilter && !c.name.toLowerCase().includes(lowerFilter) && !c.description.toLowerCase().includes(lowerFilter)) return false;
+            return true;
+        });
+    }, [characters, filter, visibilityFilter]);
+
+    const handleConfirmDelete = () => {
+        if(charToDelete) {
+            deleteCharacter(charToDelete.id);
+        }
+        setCharToDelete(null);
+    }
+
+    return (
+        <div className="space-y-4">
+             <div className="flex flex-col sm:flex-row gap-4">
+                <input 
+                    type="text"
+                    placeholder="Search by name or description..."
+                    value={filter}
+                    onChange={e => setFilter(e.target.value)}
+                    className="w-full max-w-lg p-2 bg-primary border border-border rounded-md"
+                />
+                <select 
+                    value={visibilityFilter} 
+                    onChange={e => setVisibilityFilter(e.target.value as any)}
+                    className="p-2 bg-primary border border-border rounded-md"
+                >
+                    <option value="all">All Visibilities</option>
+                    <option value="public">Public Only</option>
+                    <option value="private">Private Only</option>
+                </select>
+             </div>
+             <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-border">
+                    <thead className="bg-primary">
+                        <tr>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary uppercase">Character</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary uppercase">Creator</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary uppercase">Status</th>
+                            <th className="relative px-4 py-2"><span className="sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                        {filteredCharacters.map(character => {
+                            const creator = findUserById(character.creatorId);
+                            return (
+                                <tr key={character.id}>
+                                    <td className="px-4 py-3 whitespace-nowrap">
+                                        <div className="flex items-center gap-3">
+                                            <Avatar imageId={character.avatarUrl} alt={character.name} className="w-8 h-8 rounded-full object-cover" />
+                                            <p className="font-medium">{character.name}</p>
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-3 whitespace-nowrap text-sm">{creator?.profile.name || 'Unknown'}</td>
+                                    <td className="px-4 py-3 whitespace-nowrap text-sm">
+                                        {character.isSilencedByAdmin ? 
+                                            <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-900/50 text-yellow-300">Silenced</span> :
+                                            <span className="px-2 py-1 text-xs font-semibold rounded-full bg-success/20 text-success">{character.isPublic ? 'Public' : 'Private'}</span>
+                                        }
+                                    </td>
+                                    <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
+                                        <button onClick={() => setView({type: 'EDIT_CHARACTER', characterId: character.id})} className="text-accent-secondary hover:underline mr-4">Edit</button>
+                                        <button onClick={() => silenceCharacter(character.id, !character.isSilencedByAdmin)} className="text-yellow-400 hover:underline mr-4">{character.isSilencedByAdmin ? 'Unsilence' : 'Silence'}</button>
+                                        <button onClick={() => setCharToDelete(character)} className="text-danger hover:underline">Delete</button>
+                                    </td>
+                                </tr>
+                            )
+                        })}
+                    </tbody>
+                </table>
+             </div>
+             {charToDelete && (
+                 <ConfirmationModal
+                    title="Delete Character?"
+                    message={`Are you sure you want to permanently delete "${charToDelete.name}"? This will also remove all associated chat histories.`}
+                    onConfirm={handleConfirmDelete}
+                    onCancel={() => setCharToDelete(null)}
+                 />
+             )}
+        </div>
+    );
+};
+
+export default AdminConsoleView;

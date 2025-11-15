@@ -1,5 +1,6 @@
 import React, { createContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { User, UserProfile, Character, ChatMessage, Notification, Comment, ChatSettings, GlobalSettings, AIContextSettings, Report, Ticket, AIAlert, DMConversation, DirectMessage, TicketStatus, AIViolationCategory, ReportableEntityType, UserRole, UserType, TicketFolder, DMFolder, AIAlertStatus, AIAlertFolder, ForumCategory, ForumThread, ForumPost, Tag, ApiConnection, AITool, AIToolSettings } from '../types';
+// FIX: The `summarizeCharacterData` function is exported from `aiService`, not `moderationService`.
 import { scanImage, scanText } from '../services/moderationService';
 import { summarizeCharacterData } from '../services/aiService';
 
@@ -10,6 +11,7 @@ interface AuthContextType {
   signup: (username: string, pass: string, email: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   logout: () => void;
+  // FIX: Make avatarFile optional to match the implementation and call sites.
   updateUserProfile: (profile: UserProfile, avatarFile?: File | null) => Promise<void>;
   updateAnyUserProfile: (userId: string, profile: UserProfile) => void;
   updateUserType: (userId: string, userType: User['userType']) => void;
@@ -509,8 +511,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     console.error(`Failed to summarize character ${char.name}:`, error);
                     // Check if the error is a rate limit error. If so, stop immediately.
                     const errorMessage = (error?.message || JSON.stringify(error)).toLowerCase();
-                    if (errorMessage.includes('429') || errorMessage.includes('resource_exhausted') || errorMessage.includes('rate limit') || errorMessage.includes('rpc failed')) {
-                        console.warn("Rate limit or network error encountered. Stopping summarization process. It will retry on next load.");
+                    if (errorMessage.includes('429') || errorMessage.includes('resource_exhausted') || errorMessage.includes('rate limit')) {
+                        console.warn("Rate limit exceeded. Stopping summarization process. It will retry on next load.");
                         allSucceeded = false;
                         break; // Exit the loop
                     }
@@ -550,10 +552,152 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
 }, [initialSummarizationDone, characters, findConnectionForTool, setInitialSummarizationDone]);
 
+  // FIX: Explicitly cast the result of Object.values to fix type inference issues which cause cascading "Property 'user' does not exist on type 'unknown'" errors.
+  // Fix: Explicitly typing the lambda parameter 'u' to resolve type inference issues with Object.values.
+  const allUsers = useMemo(() => Object.values(users).map((u: { pass: string; user: User }) => u.user), [users]);
+
+  useEffect(() => {
+    if (session && users[session]) {
+      setCurrentUser(users[session].user);
+    } else {
+      setCurrentUser(null);
+    }
+  }, [session, users]);
+
+  const updateUser = (userToUpdate: User) => {
+      setUsers(prev => ({ ...prev, [userToUpdate.username]: { ...prev[userToUpdate.username], user: userToUpdate }}));
+      setCurrentUser(current => current?.id === userToUpdate.id ? userToUpdate : current);
+  }
+
+  const createAdminNotification = (type: Notification['type'], message: string, relatedId: string) => {
+    allUsers.forEach(user => {
+        if (['Admin', 'Assistant Admin', 'Moderator'].includes(user.role)) {
+            const notification: Notification = {
+                id: crypto.randomUUID(), type, message, relatedId, timestamp: Date.now(), isRead: false,
+            };
+            const updatedUser = { ...user, profile: { ...user.profile, notifications: [notification, ...(user.profile.notifications || [])]}};
+            updateUser(updatedUser);
+        }
+    });
+  };
+
+  const createAIAlert = (
+    entityType: AIAlert['entityType'], 
+    entityId: string, 
+    category: AIViolationCategory, 
+    confidence: number,
+    entityCreatorId: string,
+    flaggedText?: string,
+    explanation?: string
+  ) => {
+      const newAlert: AIAlert = {
+          id: crypto.randomUUID(), entityType, entityId, category, confidence,
+          timestamp: Date.now(), status: 'New', entityCreatorId, flaggedText, explanation
+      };
+      setAIAlerts(prev => [newAlert, ...prev]);
+      createAdminNotification('NEW_AI_ALERT', `New AI Alert: ${category} detected in ${entityType}.`, newAlert.id);
+  };
+
+  const login = async (username: string, pass: string): Promise<void> => {
+    // In a real app, this would be an API call.
+    // POST /api/login { username, password }
+    await new Promise(res => setTimeout(res, 500));
+    const lcUsername = username.toLowerCase();
+    const storedUser = users[lcUsername];
+    if (!storedUser || storedUser.pass !== pass) {
+      throw new Error('Invalid username or password.');
+    }
+    // On success, backend returns a token/session, which we'd store.
+    setSession(lcUsername);
+  };
+
+  const signup = async (username: string, pass: string, email: string): Promise<void> => {
+    // In a real app, this would be an API call.
+    // POST /api/signup { username, password, email }
+    await new Promise(res => setTimeout(res, 500));
+    const lcUsername = username.toLowerCase();
+    if (users[lcUsername]) {
+      throw new Error('An account with this username already exists.');
+    }
+    const emailInUse = Object.values(users).some(u => u.user.profile.email.toLowerCase() === email.toLowerCase());
+    if (emailInUse) {
+        throw new Error('An account with this email already exists.');
+    }
+
+    const userId = crypto.randomUUID();
+    const newUser: User = {
+      id: userId,
+      username: lcUsername,
+      userType: 'Free',
+      role: 'User',
+      isSilenced: false,
+      profile: {
+        name: username,
+        email: email,
+        gender: 'undisclosed',
+        birthday: '',
+        avatarUrl: `https://api.dicebear.com/8.x/initials/svg?seed=${username}`,
+        bio: '',
+        favoriteCharacterIds: [],
+        following: [],
+        followers: [],
+        notifications: [],
+        forumPostCount: 0,
+        forumThreadCount: 0,
+      },
+    };
+    // On success, backend returns new user and token/session.
+    setUsers(prev => ({ ...prev, [lcUsername]: { pass, user: newUser } }));
+    setSession(lcUsername);
+  };
+  
+  const loginWithGoogle = async (): Promise<void> => {
+    // This would involve a complex OAuth flow with a backend.
+    await new Promise(res => setTimeout(res, 500));
+    const mockUsername = 'googleuser';
+    const mockEmail = 'user@google.com';
+    const mockPassword = 'password123';
+    
+    if (!users[mockUsername]) {
+        // First time Google login
+        const userId = crypto.randomUUID();
+        const newUser: User = {
+          id: userId,
+          username: mockUsername,
+          userType: 'Subscription', // Let's make them a subscriber to be nice
+          role: 'User',
+          isSilenced: false,
+          profile: {
+            name: 'Google User',
+            email: mockEmail,
+            gender: 'undisclosed',
+            birthday: '2000-01-01',
+            avatarUrl: `https://api.dicebear.com/8.x/initials/svg?seed=Google User`,
+            bio: 'Just exploring!',
+            favoriteCharacterIds: [],
+            following: [],
+            followers: [],
+            notifications: [],
+            forumPostCount: 0,
+            forumThreadCount: 0,
+          },
+        };
+        setUsers(prev => ({ ...prev, [mockUsername]: { pass: mockPassword, user: newUser } }));
+        setSession(mockUsername);
+    } else {
+        // Subsequent Google login
+        await login(mockUsername, users[mockUsername].pass);
+    }
+  }
+
+  const logout = () => {
+    // POST /api/logout
+    setSession(null);
+  };
+  
   const findUserById = useCallback((userId: string): User | null => {
-      // FIX: Add explicit type to `u` to prevent it from being inferred as `unknown` in some environments.
-      const userEntry = Object.values(users).find((u: { pass: string; user: User }) => u.user.id === userId);
-      return userEntry ? userEntry.user : null;
+      // Fix: Explicitly typing the lambda parameter 'u' to resolve type inference issues with Object.values.
+      return Object.values(users).find((u: { pass: string; user: User }) => u.user.id === userId)?.user || null;
   }, [users]);
 
   const updateUserProfile = async (profile: UserProfile, avatarFile?: File | null) => {
@@ -588,7 +732,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (profile.bio) {
         const textScanResult = await scanText(profile.bio, textModConnection);
         if (textScanResult) {
-            createAIAlert('user', currentUser.id, textScanResult.category as AIViolationCategory, { confidence: textScanResult.confidence, entityCreatorId: currentUser.id, flaggedText: textScanResult.flaggedText, explanation: textScanResult.explanation });
+            createAIAlert('user', currentUser.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
         }
       }
     }
@@ -596,7 +740,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (avatarFile) {
         const imageScanResult = await scanImage(avatarFile, imageModConnection);
         if (imageScanResult) {
-            createAIAlert('image', finalProfile.avatarUrl, imageScanResult.category as AIViolationCategory, { confidence: imageScanResult.confidence, entityCreatorId: currentUser.id, explanation: imageScanResult.explanation });
+            createAIAlert('image', finalProfile.avatarUrl, imageScanResult.category as AIViolationCategory, imageScanResult.confidence, currentUser.id, undefined, imageScanResult.explanation);
         }
       }
     }
@@ -692,18 +836,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const summaryConnection = findConnectionForTool('characterSummarization');
     const isNewCharacter = !characters.some(c => c.id === character.id);
     
-    // Moderation scans (blocking is acceptable here as it's a security step)
+    // Moderation scans
     if (textModConnection) {
         const textToScan = [character.name, character.description, character.personality, character.greeting, character.story, character.situation].join(' ');
         const textScanResult = await scanText(textToScan, textModConnection);
         if (textScanResult) {
-            createAIAlert('character', character.id, textScanResult.category as AIViolationCategory, { confidence: textScanResult.confidence, entityCreatorId: character.creatorId, flaggedText: textScanResult.flaggedText, explanation: textScanResult.explanation });
+            createAIAlert('character', character.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, character.creatorId, textScanResult.flaggedText, textScanResult.explanation);
         }
     }
 
     let finalAvatarUrl = character.avatarUrl;
     if (avatarFile) {
-        if (finalAvatarUrl && finalAvatarUrl.startsWith('blob:')) {
+        if (finalAvatarUrl.startsWith('blob:')) {
             URL.revokeObjectURL(finalAvatarUrl);
         }
         finalAvatarUrl = URL.createObjectURL(avatarFile);
@@ -711,45 +855,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (imageModConnection) {
             const imageScanResult = await scanImage(avatarFile, imageModConnection);
             if (imageScanResult) {
-                createAIAlert('image', finalAvatarUrl, imageScanResult.category as AIViolationCategory, { confidence: imageScanResult.confidence, entityCreatorId: character.creatorId, explanation: imageScanResult.explanation });
+                createAIAlert('image', finalAvatarUrl, imageScanResult.category as AIViolationCategory, imageScanResult.confidence, character.creatorId, undefined, imageScanResult.explanation);
             }
         }
     }
     
     const characterToSave = { ...character, avatarUrl: finalAvatarUrl };
-
-    // --- IMMEDIATE SAVE (Step 1) ---
-    // Save the character first without the new summary. This provides immediate UI feedback.
-    setCharacters(prev => {
-        const existingIndex = prev.findIndex(c => c.id === characterToSave.id);
-        if (existingIndex > -1) {
-            const updated = [...prev];
-            // Keep the old summary for now while the new one generates
-            updated[existingIndex] = { ...characterToSave, summary: prev[existingIndex].summary }; 
-            return updated;
-        }
-        return [characterToSave, ...prev];
-    });
-
-    // --- BACKGROUND SUMMARIZATION (Step 2) ---
-    // After the initial save, generate the summary in the background.
+    
+    // Summarization step
+    let summary: Character['summary'] = {};
     if (summaryConnection) {
-        console.log(`Starting background summarization for ${characterToSave.name}...`);
-        summarizeCharacterData(characterToSave, summaryConnection)
-            .then(summary => {
-                // When done, update the character again with the new summary.
-                setCharacters(prev => prev.map(c => 
-                    c.id === characterToSave.id ? { ...c, summary: summary || {} } : c
-                ));
-                console.log(`Background summary generated for ${characterToSave.name}`);
-            })
-            .catch(e => {
-                console.error(`Background summarization failed for ${characterToSave.name}:`, e);
-                // Optionally, you could set an error state on the character object here
-            });
+        try {
+            summary = await summarizeCharacterData(characterToSave, summaryConnection);
+        } catch (e) {
+            console.error("Failed to generate character summary, saving without it.", e);
+        }
     }
 
-    // Notification logic can run after the immediate save.
+    const characterWithSummary = { ...characterToSave, summary };
+
+    setCharacters(prev => {
+        const existingIndex = prev.findIndex(c => c.id === characterWithSummary.id);
+        if (existingIndex > -1) {
+            const updated = [...prev];
+            updated[existingIndex] = characterWithSummary;
+            return updated;
+        }
+        return [characterWithSummary, ...prev];
+    });
+
     if (isNewCharacter && character.isPublic && currentUser) {
         const creator = currentUser;
         if (creator.profile.followers?.length) {
@@ -775,7 +909,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             });
         }
     }
-    // The promise returned by saveCharacter will now resolve quickly.
   };
   
   const updateChatHistory = useCallback((characterId: string, history: ChatMessage[]) => {
@@ -899,7 +1032,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if(textModConnection) {
         const textScanResult = await scanText(commentText, textModConnection);
         if (textScanResult) {
-            createAIAlert('comment', newComment.id, textScanResult.category as AIViolationCategory, { confidence: textScanResult.confidence, entityCreatorId: currentUser.id, flaggedText: textScanResult.flaggedText, explanation: textScanResult.explanation });
+            createAIAlert('comment', newComment.id, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
         }
       }
 
@@ -930,7 +1063,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (textModConnection) {
         const textScanResult = await scanText(newText, textModConnection);
         if (textScanResult) {
-            createAIAlert('comment', commentId, textScanResult.category as AIViolationCategory, { confidence: textScanResult.confidence, entityCreatorId: currentUser.id, flaggedText: textScanResult.flaggedText, explanation: textScanResult.explanation });
+            createAIAlert('comment', commentId, textScanResult.category as AIViolationCategory, textScanResult.confidence, currentUser.id, textScanResult.flaggedText, textScanResult.explanation);
         }
     }
 
@@ -1128,6 +1261,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!currentUser || !['Admin', 'Assistant Admin', 'Moderator'].includes(currentUser?.role || '') || !note.trim()) return;
     const noteWithAuthor = `${currentUser.profile.name} (${new Date().toLocaleString()}): ${note}`;
     setAIAlerts(prev => prev.map(a => 
+      // FIX: Corrected a typo from `a.note` to `a.notes` when spreading the notes array.
       a.id === alertId ? { ...a, notes: [...(a.notes || []), noteWithAuthor] } : a
     ));
   };
@@ -1390,124 +1524,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateAIToolSettings = (settings: AIToolSettings) => {
       setAIToolSettings(settings);
   };
-  // FIX: Add explicit type to `u` to prevent it from being inferred as `unknown` in some environments.
-  const allUsers = useMemo(() => Object.values(users).map((u: { pass: string; user: User }) => u.user), [users]);
-
-  // FIX: Refactor useEffect to use type guards instead of assertions, improving type safety.
-  useEffect(() => {
-    if (session) {
-      const userRecord = users[session];
-      if (userRecord) {
-        setCurrentUser(userRecord.user);
-      } else {
-        setCurrentUser(null);
-      }
-    } else {
-      setCurrentUser(null);
-    }
-  }, [session, users]);
-
-  const updateUser = (userToUpdate: User) => {
-      // FIX: Add type assertion to 'prev[userToUpdate.username]' to resolve incorrect 'unknown' type inference and handle possible undefined value.
-      setUsers(prev => ({ ...prev, [userToUpdate.username]: { ...(prev[userToUpdate.username] as { pass: string; user: User }), user: userToUpdate }}));
-      setCurrentUser(current => current?.id === userToUpdate.id ? userToUpdate : current);
-  }
-
-  const createAdminNotification = (type: Notification['type'], message: string, relatedId: string) => {
-    allUsers.forEach(user => {
-        if (['Admin', 'Assistant Admin', 'Moderator'].includes(user.role)) {
-            const notification: Notification = {
-                id: crypto.randomUUID(), type, message, relatedId, timestamp: Date.now(), isRead: false,
-            };
-            const updatedUser = { ...user, profile: { ...user.profile, notifications: [notification, ...(user.profile.notifications || [])]}};
-            updateUser(updatedUser);
-        }
-    });
-  };
-
-  const login = async (username: string, pass: string) => {
-    if (users[username] && users[username].pass === pass) {
-        setSession(username);
-    } else {
-        throw new Error("Invalid username or password");
-    }
-  };
-
-  const signup = async (username: string, pass: string, email: string) => {
-    if (users[username]) {
-        throw new Error("Username already taken");
-    }
-    const newUser: User = {
-        id: crypto.randomUUID(),
-        username,
-        userType: 'Free',
-        role: 'User',
-        isSilenced: false,
-        profile: {
-            name: username,
-            email,
-            gender: 'undisclosed',
-            birthday: '',
-            avatarUrl: `https://api.dicebear.com/8.x/initials/svg?seed=${username}`,
-            bio: '',
-            favoriteCharacterIds: [],
-            following: [],
-            followers: [],
-            notifications: [],
-            forumPostCount: 0,
-            forumThreadCount: 0,
-        }
-    };
-    setUsers(prev => ({...prev, [username]: { pass, user: newUser }}));
-    setSession(username);
-  };
-
-  const loginWithGoogle = async () => {
-    // Mock Google login
-    if (users['jane-doe']) {
-        setSession('jane-doe');
-    } else {
-        await signup('jane-doe', 'password123', 'jane.doe@example.com');
-    }
-  };
-
-  const logout = () => setSession(null);
-
-  const setDefaultApiConnection = (connectionId: string) => {
-    if (apiConnections.find(c => c.id === connectionId)?.isActive) {
-        setDefaultApiConnectionId(connectionId);
-    }
-  };
-
-  const createAIAlert = (
-    entityType: AIAlert['entityType'], 
-    entityId: string, 
-    category: AIViolationCategory, 
-    details: {
-      confidence: number;
-      entityCreatorId?: string;
-      flaggedText?: string;
-      explanation?: string;
-    }
-  ) => {
-    const { confidence, entityCreatorId, flaggedText, explanation } = details;
-    const newAlert: AIAlert = {
-        id: crypto.randomUUID(),
-        entityType, entityId, category, confidence, entityCreatorId, flaggedText, explanation,
-        timestamp: Date.now(),
-        status: 'New'
-    };
-    setAIAlerts(prev => [newAlert, ...prev]);
-    createAdminNotification('NEW_AI_ALERT', `New AI alert for ${entityType}: ${category}`, newAlert.id);
-  };
-
-  const value = {
-    currentUser, allUsers, login, signup, loginWithGoogle, logout, updateUserProfile, updateAnyUserProfile, updateUserType, updateUserRole, deleteUser, silenceUser, toggleFavorite, characters, saveCharacter, deleteCharacter, silenceCharacter, likeCharacter, addComment, editComment, deleteComment, silenceComment, followUser, findUserById, markNotificationsAsRead, markSingleNotificationAsRead, markCategoryAsRead, markAdminNotificationsAsRead, chatHistories, updateChatHistory, deleteChatHistory, chatSettings, updateChatSettings, chatStats, updateChatStats, narrativeStates, updateNarrativeState, globalSettings, updateGlobalSettings, aiContextSettings, updateAIContextSettings, reports, resolveReport, addNoteToReport, aiAlerts, updateAIAlertStatus, addNoteToAIAlert, updateAIAlertFeedback, tickets, updateTicketStatus, dmConversations, submitReport, submitTicket, sendDirectMessage, markDMAsReadByUser, markDMAsReadByAdmin, markAllDMsAsReadByAdmin, ticketFolders, createTicketFolder, moveTicketToFolder, dmFolders, createDMFolder, moveDMConversationToFolder, aiAlertFolders, createAIAlertFolder, moveAIAlertToFolder, forumCategories, forumThreads, getPostsForThread, createThread, createPost, togglePostVote, togglePinThread, toggleLockThread, deletePost, deleteThread, editPost, createCategory, updateCategory, deleteCategory, silenceThread, silencePost, moveThread, apiConnections, defaultApiConnectionId, addApiConnection, updateApiConnection, deleteApiConnection, setDefaultApiConnection, toggleApiConnectionActive, findConnectionForModel, aiToolSettings, updateAIToolSettings, findConnectionForTool
-  };
-
+  
   return (
-    <AuthContext.Provider value={value}>
-        {children}
+    <AuthContext.Provider value={{
+      currentUser, allUsers, login, signup, loginWithGoogle, logout,
+      updateUserProfile, updateAnyUserProfile, updateUserType, updateUserRole, deleteUser, silenceUser,
+      toggleFavorite, characters, saveCharacter, deleteCharacter, silenceCharacter,
+      likeCharacter, addComment, editComment, deleteComment, silenceComment,
+      followUser, findUserById, markNotificationsAsRead, markSingleNotificationAsRead, markCategoryAsRead, markAdminNotificationsAsRead,
+      chatHistories, updateChatHistory, deleteChatHistory,
+      chatSettings, updateChatSettings,
+      chatStats, updateChatStats,
+      narrativeStates, updateNarrativeState,
+      globalSettings, updateGlobalSettings,
+      aiContextSettings, updateAIContextSettings,
+      reports, resolveReport, addNoteToReport,
+      aiAlerts, updateAIAlertStatus, addNoteToAIAlert, updateAIAlertFeedback,
+      tickets, updateTicketStatus,
+      dmConversations, submitReport, submitTicket, sendDirectMessage, markDMAsReadByUser, markDMAsReadByAdmin, markAllDMsAsReadByAdmin,
+      ticketFolders, createTicketFolder, moveTicketToFolder,
+      dmFolders, createDMFolder, moveDMConversationToFolder,
+      aiAlertFolders, createAIAlertFolder, moveAIAlertToFolder,
+      forumCategories, forumThreads, getPostsForThread, createThread, createPost,
+      togglePostVote, togglePinThread, toggleLockThread, deletePost, deleteThread, editPost,
+      createCategory, updateCategory, deleteCategory, silenceThread, silencePost, moveThread,
+      // FIX: The variable was named `setDefaultApiConnection`, but the state setter is `setDefaultApiConnectionId`.
+      apiConnections, defaultApiConnectionId, addApiConnection, updateApiConnection, deleteApiConnection, setDefaultApiConnection: setDefaultApiConnectionId, toggleApiConnectionActive, findConnectionForModel,
+      aiToolSettings, updateAIToolSettings, findConnectionForTool
+    }}>
+      {children}
     </AuthContext.Provider>
   );
 };

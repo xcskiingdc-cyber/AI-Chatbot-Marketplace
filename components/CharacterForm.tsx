@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useContext, useRef, useMemo } from 'react';
 import { Character, CharacterStat, StatRule, ApiConnection } from '../types';
 import { UploadIcon, DeleteIcon, QuestionMarkCircleIcon, SpinnerIcon, RefreshIcon, CloseIcon, PlusIcon } from './Icons';

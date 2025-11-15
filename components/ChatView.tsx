@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useContext, useMemo } from 'react';
 import { Character, ChatMessage, ChatSettings, ApiConnection } from '../types';
-import { getTextToSpeech, generateChatResponseWithStats } from '../services/aiService';
+import { getChatResponseStream, getTextToSpeech, generateChatResponseWithStats } from '../services/aiService';
 import Message from './Message';
 import { SendIcon, SettingsIcon, SpinnerIcon } from './Icons';
 import { decode, decodeAudioData } from '../utils/audioUtils';
@@ -114,14 +114,14 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
         if (!statsForUpdate && character.stats.length > 0) {
             statsForUpdate = {};
             character.stats.forEach(stat => {
-                statsForUpdate![stat.id] = stat.initialValue;
+                statsForUpdate[stat.id] = stat.initialValue;
             });
         }
 
         const narrativeState = auth.narrativeStates?.[auth.currentUser.id]?.[character.id] || {};
 
         const { statChanges, responseText, newNarrativeState } = await generateChatResponseWithStats(
-            character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, statsForUpdate!, narrativeState, connection
+            character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, statsForUpdate, narrativeState, connection
         );
         
         if (responseText.startsWith("Error:")) {
@@ -131,7 +131,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
             return;
         }
 
-        let finalStats: Record<string, number> = { ...statsForUpdate };
+        let finalStats = { ...statsForUpdate };
         if (statChanges && statChanges.length > 0) {
           statChanges.forEach(update => {
             const statInfo = character.stats.find(s => s.id === update.statId);
@@ -320,14 +320,14 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
         if (!statsForUpdate && character.stats.length > 0) {
             statsForUpdate = {};
             character.stats.forEach(stat => {
-                statsForUpdate![stat.id] = stat.initialValue;
+                statsForUpdate[stat.id] = stat.initialValue;
             });
         }
 
         const narrativeState = auth.narrativeStates?.[auth.currentUser.id]?.[character.id] || {};
 
         const { statChanges, responseText, newNarrativeState } = await generateChatResponseWithStats(
-            character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, statsForUpdate!, narrativeState, connection
+            character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, statsForUpdate, narrativeState, connection
         );
 
         if (responseText.startsWith("Error:")) {
@@ -337,7 +337,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
             return;
         }
 
-        let finalStats: Record<string, number> = { ...statsForUpdate };
+        let finalStats = { ...statsForUpdate };
         if (statChanges && statChanges.length > 0) {
           statChanges.forEach(update => {
             const statInfo = character.stats.find(s => s.id === update.statId);
