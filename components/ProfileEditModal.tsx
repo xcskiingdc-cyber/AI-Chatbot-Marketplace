@@ -1,6 +1,9 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile } from '../types';
-import { CloseIcon, UploadIcon, DeleteIcon } from './Icons';
+import { CloseIcon, UploadIcon, DeleteIcon, CropIcon } from './Icons';
+
+declare let Cropper: any;
 
 interface ProfileEditModalProps {
   userProfile: UserProfile;
@@ -12,6 +15,12 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
   const [profile, setProfile] = useState<UserProfile>(userProfile);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(userProfile.avatarUrl);
+  
+  // Cropper state
+  const [isCropperOpen, setIsCropperOpen] = useState(false);
+  const [imageToCrop, setImageToCrop] = useState<string | null>(null);
+  const cropperImageRef = useRef<HTMLImageElement>(null);
+  const cropperInstanceRef = useRef<any>(null);
 
   useEffect(() => {
     return () => {
@@ -20,6 +29,25 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
         }
     };
   }, [previewUrl]);
+  
+  useEffect(() => {
+    if (isCropperOpen && cropperImageRef.current && imageToCrop) {
+      const cropper = new Cropper(cropperImageRef.current, {
+        aspectRatio: 1, // Square for profile
+        viewMode: 1,
+        dragMode: 'move',
+        background: false,
+        autoCropArea: 0.9,
+      });
+      cropperInstanceRef.current = cropper;
+    }
+    return () => {
+      if (cropperInstanceRef.current) {
+        cropperInstanceRef.current.destroy();
+        cropperInstanceRef.current = null;
+      }
+    };
+  }, [isCropperOpen, imageToCrop]);
 
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -33,14 +61,37 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-        const file = e.target.files[0];
-        setSelectedFile(file);
-        
-        if (previewUrl && previewUrl.startsWith('blob:')) {
-            URL.revokeObjectURL(previewUrl);
-        }
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImageToCrop(reader.result as string);
+        setIsCropperOpen(true);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+  
+  const handleReCrop = () => {
+      if (previewUrl) {
+          setImageToCrop(previewUrl);
+          setIsCropperOpen(true);
+      }
+  };
 
-        setPreviewUrl(URL.createObjectURL(file));
+  const handleCropSave = () => {
+    if (cropperInstanceRef.current) {
+      cropperInstanceRef.current.getCroppedCanvas().toBlob((blob: Blob) => {
+        if (blob) {
+          const file = new File([blob], 'avatar.png', { type: 'image/png' });
+          setSelectedFile(file);
+          if (previewUrl && previewUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(previewUrl);
+          }
+          setPreviewUrl(URL.createObjectURL(file));
+          setIsCropperOpen(false);
+          setImageToCrop(null);
+        }
+      }, 'image/png');
     }
   };
   
@@ -56,8 +107,6 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
     e.preventDefault();
     let finalProfileData = { ...profile };
 
-    // The logic to save the image and set the avatarUrl is now handled in AuthContext.
-    // We just pass the selectedFile to the onSave handler.
     if (previewUrl === null) {
       finalProfileData.avatarUrl = `https://api.dicebear.com/8.x/initials/svg?seed=${profile.name}`;
     }
@@ -69,7 +118,30 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
   const labelClasses = "block text-sm font-medium text-text-secondary mb-2";
   const defaultAvatar = `https://api.dicebear.com/8.x/initials/svg?seed=${profile.name}`;
 
+  const ImageCropperModal = (
+     <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+      <div className="bg-primary rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-border">
+        <div className="p-4 border-b border-border flex justify-between items-center">
+          <h2 className="text-xl font-bold text-text-primary">Crop Avatar</h2>
+          <button onClick={() => setIsCropperOpen(false)} className="text-text-secondary hover:text-text-primary">
+            <CloseIcon className="w-6 h-6" />
+          </button>
+        </div>
+        <div className="p-6 flex-1 overflow-hidden">
+          <div className="w-full h-full bg-tertiary">
+            <img ref={cropperImageRef} src={imageToCrop || ''} crossOrigin="anonymous" alt="Source" style={{ display: 'block', maxWidth: '100%' }} />
+          </div>
+        </div>
+        <div className="p-4 bg-secondary/50 border-t border-border flex justify-end gap-4">
+          <button type="button" onClick={() => setIsCropperOpen(false)} className="px-6 py-2 bg-tertiary hover:bg-hover rounded-md transition-colors">Cancel</button>
+          <button type="button" onClick={handleCropSave} className="px-6 py-2 bg-accent-secondary hover:bg-accent-secondary-hover text-white rounded-md transition-colors">Save</button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
+    <>
     <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-40 p-4">
       <div className="bg-gradient-to-b from-primary to-secondary rounded-lg shadow-soft-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto relative border border-border">
         <div className="sticky top-0 bg-primary z-10 px-6 py-4 border-b border-border flex justify-between items-center">
@@ -89,6 +161,14 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
                             <span>Change</span>
                         </label>
                         <input id="profile-avatar-upload" type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
+                        
+                        {previewUrl && (
+                            <button type="button" onClick={handleReCrop} className="bg-tertiary hover:bg-hover text-text-primary font-bold py-2 px-4 rounded-md inline-flex items-center gap-2">
+                                <CropIcon className="w-5 h-5" />
+                                <span>Crop</span>
+                            </button>
+                        )}
+
                         <button type="button" onClick={handleRemoveAvatar} className="bg-red-700 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md inline-flex items-center gap-2">
                             <DeleteIcon className="w-5 h-5" />
                             <span>Remove</span>
@@ -128,6 +208,8 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ userProfile, onSave
         </form>
       </div>
     </div>
+    {isCropperOpen && ImageCropperModal}
+    </>
   );
 };
 

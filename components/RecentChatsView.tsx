@@ -35,34 +35,45 @@ const RecentChatsView: React.FC<RecentChatsViewProps> = ({ characters, userChatH
   }
 
   return (
-    <div className="p-4 sm:p-6 md:p-8 max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6 text-text-primary">Recent Chats</h1>
-      <div className="space-y-4">
+    <div className="w-full max-w-4xl mx-auto p-2 sm:p-6 md:p-8 overflow-hidden">
+      <h1 className="text-2xl sm:text-3xl font-bold mb-4 text-text-primary px-2">Recent Chats</h1>
+      
+      <div className="mb-4 mx-1 sm:mx-0 p-3 sm:p-4 bg-yellow-900/20 border border-yellow-600/30 rounded-lg flex gap-3 text-sm text-yellow-200/90 items-start">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 flex-shrink-0 text-yellow-500 mt-0.5">
+            <path fillRule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003ZM12 8.25a.75.75 0 0 1 .75.75v3.75a.75.75 0 0 1-1.5 0V9a.75.75 0 0 1 .75-.75Zm0 8.25a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clipRule="evenodd" />
+        </svg>
+        <p>Any chat that you don't interact with for 7 days will be deleted. Send a reply in the chat before the 7 days to keep the chat from being deleted.</p>
+      </div>
+
+      <div className="space-y-2 sm:space-y-3 pb-20">
         {recentChats.map(({ character, lastMessage }) => (
           <div
             key={character.id}
             onClick={() => setView({ type: 'CHAT', characterId: character.id })}
-            className="flex items-center p-4 bg-secondary rounded-lg cursor-pointer hover:bg-hover transition-colors duration-200 group relative"
+            className="w-full flex items-center gap-2 sm:gap-4 p-3 sm:p-4 bg-secondary rounded-lg cursor-pointer hover:bg-hover transition-colors duration-200 group overflow-hidden shadow-sm border border-white/5"
           >
-            <Avatar imageId={character.avatarUrl} alt={character.name} className="w-12 h-12 sm:w-16 sm:h-16 rounded-full object-cover mr-4" />
-            <div className="flex-1 overflow-hidden">
-              <div className="flex justify-between items-baseline">
-                <h2 className="text-lg font-bold text-text-primary truncate">{character.name}</h2>
-                <p className="text-xs text-text-secondary flex-shrink-0 ml-4">
+            <Avatar imageId={character.avatarUrl} alt={character.name} className="w-12 h-12 sm:w-14 sm:h-14 rounded-full object-cover flex-shrink-0" />
+            
+            <div className="flex-1 min-w-0 flex flex-col justify-center">
+              <div className="flex justify-between items-baseline mb-0.5 gap-2">
+                <h2 className="text-base sm:text-lg font-bold text-text-primary truncate">{character.name}</h2>
+                <p className="text-[10px] sm:text-xs text-text-secondary flex-shrink-0 whitespace-nowrap">
                   {new Date(lastMessage.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                 </p>
               </div>
-              <p className="text-text-secondary truncate mt-1">
+              <p className="text-xs sm:text-sm text-text-secondary truncate">
                 <span className="font-medium text-text-primary">{lastMessage.sender === 'user' ? 'You: ' : ''}</span>
                 {lastMessage.text}
               </p>
             </div>
+
              <button
                 onClick={(e) => { e.stopPropagation(); deleteChatHistory(character.id); }}
-                className="absolute top-1/2 -translate-y-1/2 right-4 p-2 bg-red-800/50 rounded-full text-red-300 opacity-80 group-hover:opacity-100 transition-opacity hover:bg-red-700/50"
+                className="p-2 sm:p-2.5 text-red-400 hover:bg-red-900/20 hover:text-red-300 rounded-full transition-colors flex-shrink-0 ml-1"
                 aria-label="Delete Chat"
+                title="Delete Chat"
             >
-                <DeleteIcon className="w-5 h-5" />
+                <DeleteIcon className="w-5 h-5 sm:w-6 sm:h-6" />
             </button>
           </div>
         ))}

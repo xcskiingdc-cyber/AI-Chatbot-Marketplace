@@ -34,7 +34,7 @@ const CreateThreadForm: React.FC<CreateThreadFormProps> = ({ categoryId, setView
             categoryId,
             authorId: currentUser.id,
             title: title.trim(),
-            tags: tags.split(',').map(t => ({ id: crypto.randomUUID(), name: t.trim() })).filter(t => t.name),
+            tags: tags.split(',').map(t => ({ id: crypto.randomUUID(), name: t.trim(), description: '' })).filter(t => t.name),
             isLocked: false,
             isPinned: false,
         };

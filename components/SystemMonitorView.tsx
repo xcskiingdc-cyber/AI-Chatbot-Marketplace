@@ -1,8 +1,12 @@
-import React, { useState, useContext, useMemo, useEffect } from 'react';
+
+import React, { useState, useContext, useMemo, useEffect, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { ApiConnection, Character, GlobalSettings, AIContextSettings, CharacterContextField, ChatMessage, User } from '../types';
-import { SystemMonitorIcon, SpinnerIcon, UserIcon, DocumentTextIcon, CodeBracketIcon, ChatBubbleIcon, CpuChipIcon, ServerIcon, SparklesIcon, DatabaseIcon, CloseIcon } from './Icons';
-import { buildSystemPrompt, HAVEN_PROMPT, BEYOND_THE_HAVEN_PROMPT, generateChatResponseWithStats } from '../services/aiService';
+import { SystemMonitorIcon, SpinnerIcon, UserIcon, DocumentTextIcon, CodeBracketIcon, ChatBubbleIcon, CpuChipIcon, ServerIcon, SparklesIcon, DatabaseIcon, CloseIcon, UploadIcon, RefreshIcon, EditIcon } from './Icons';
+import { buildSystemPrompt, DEFAULT_HAVEN_PROMPT, DEFAULT_BEYOND_PROMPT, generateChatResponseWithStats, editImage } from '../services/aiService';
+import Logo from './Logo';
+
+declare let Cropper: any;
 
 const StatusIndicator: React.FC<{ isOk: boolean; okText?: string; failText?: string }> = ({ isOk, okText = 'OK', failText = 'Error/Inactive' }) => (
     <div className="flex items-center gap-2">
@@ -108,10 +112,186 @@ const ChatFlowDiagram: React.FC = () => (
     </div>
 );
 
+// Helper to make background transparent by removing the color found at (0,0)
+const makeBackgroundTransparent = (base64Data: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) { resolve(base64Data); return; }
+
+            ctx.drawImage(img, 0, 0);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+
+            // Get corner color (0,0)
+            const r0 = data[0], g0 = data[1], b0 = data[2];
+            const tolerance = 30; // Tolerance for color matching
+
+            const isClose = (i: number) => {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                return Math.abs(r - r0) < tolerance && 
+                       Math.abs(g - g0) < tolerance && 
+                       Math.abs(b - b0) < tolerance;
+            };
+
+            for (let i = 0; i < data.length; i += 4) {
+                if (isClose(i)) {
+                    data[i + 3] = 0; // Set alpha to 0 (transparent)
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+            // Return just the base64 data part
+            resolve(canvas.toDataURL('image/png').split(',')[1]);
+        };
+        img.onerror = () => reject(new Error("Failed to load image for transparency processing"));
+        
+        // Determine prefix. If raw base64, try to detect or default to png/jpeg
+        if (base64Data.startsWith('iVBOR')) {
+            img.src = `data:image/png;base64,${base64Data}`;
+        } else {
+            img.src = `data:image/jpeg;base64,${base64Data}`;
+        }
+    });
+};
+
+// --- Logo Editor Modal ---
+interface LogoEditorModalProps {
+  imageUrl: string;
+  onClose: () => void;
+  onSave: (file: File) => Promise<void>;
+}
+
+const LogoEditorModal: React.FC<LogoEditorModalProps> = ({ imageUrl, onClose, onSave }) => {
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [currentImage, setCurrentImage] = useState(imageUrl);
+    const cropperRef = useRef<any>(null);
+    const imageElementRef = useRef<HTMLImageElement>(null);
+    const auth = useContext(AuthContext);
+    
+    useEffect(() => {
+        if (imageElementRef.current) {
+            const cropper = new Cropper(imageElementRef.current, {
+                viewMode: 1,
+                dragMode: 'move',
+                autoCropArea: 0.8,
+                background: false, // Transparent background
+            });
+            cropperRef.current = cropper;
+        }
+        return () => {
+            if (cropperRef.current) {
+                cropperRef.current.destroy();
+            }
+        };
+    }, [currentImage]); // Re-init if image changes
+
+    const handleRemoveBackground = async () => {
+        if (!auth) return;
+        let connection = auth.findConnectionForModel('gemini-2.5-flash-image') 
+            || auth.apiConnections.find(c => c.isActive);
+
+        if (!connection) {
+            alert("No active API connection found to process images.");
+            return;
+        }
+
+        setIsProcessing(true);
+        try {
+            let base64Data = "";
+             if (cropperRef.current) {
+                const canvas = cropperRef.current.getCroppedCanvas();
+                 base64Data = canvas.toDataURL('image/png').split(',')[1];
+            } else {
+                 // Simple extraction if it's a data URL
+                 base64Data = currentImage.split(',')[1]; 
+            }
+            
+            // Prompt for a SOLID WHITE background, which we can then easily remove via canvas
+            const prompt = "Isolate the logo and place it on a solid white background. Ensure the logo edges are clean and distinct. Do not alter the logo shape or colors.";
+            const processedBase64 = await editImage(base64Data, 'image/png', prompt, connection);
+            
+            if (processedBase64) {
+                // The AI usually returns a JPEG or opaque PNG. We must manually remove the white background.
+                const transparentBase64 = await makeBackgroundTransparent(processedBase64);
+                const newUrl = `data:image/png;base64,${transparentBase64}`;
+                setCurrentImage(newUrl);
+            } else {
+                alert("Failed to process image.");
+            }
+
+        } catch (error) {
+            console.error(error);
+            alert("Error removing background.");
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleSave = async () => {
+        if (!cropperRef.current) return;
+        setIsProcessing(true);
+        cropperRef.current.getCroppedCanvas({ fillColor: 'transparent' }).toBlob(async (blob: Blob) => {
+            if (blob) {
+                const file = new File([blob], "logo.png", { type: "image/png" });
+                await onSave(file);
+                onClose();
+            }
+            setIsProcessing(false);
+        }, 'image/png');
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+            <div className="bg-primary rounded-lg w-full max-w-4xl h-[90vh] flex flex-col">
+                 <div className="p-4 border-b border-border flex justify-between items-center">
+                    <h3 className="text-xl font-bold">Edit Logo</h3>
+                    <button onClick={onClose}><CloseIcon className="w-6 h-6" /></button>
+                </div>
+                <div className="flex-1 bg-tertiary relative overflow-hidden flex items-center justify-center p-4">
+                    {isProcessing && (
+                        <div className="absolute inset-0 bg-black/50 z-10 flex flex-col items-center justify-center text-white">
+                            <SpinnerIcon className="w-10 h-10 animate-spin mb-2" />
+                            <span>Processing...</span>
+                        </div>
+                    )}
+                    <img ref={imageElementRef} src={currentImage} crossOrigin="anonymous" alt="Logo to edit" className="max-w-full max-h-full" />
+                </div>
+                <div className="p-4 border-t border-border flex justify-between items-center bg-secondary">
+                    <div className="flex gap-2">
+                        <button 
+                            onClick={handleRemoveBackground} 
+                            className="flex items-center gap-2 px-4 py-2 bg-tertiary hover:bg-hover rounded-md text-sm"
+                            disabled={isProcessing}
+                        >
+                            <SparklesIcon className="w-4 h-4 text-accent-secondary" />
+                            Remove Background (AI)
+                        </button>
+                    </div>
+                    <div className="flex gap-2">
+                         <button onClick={onClose} className="px-4 py-2 bg-tertiary hover:bg-hover rounded-md text-sm">Cancel</button>
+                         <button onClick={handleSave} className="px-4 py-2 bg-success hover:opacity-80 text-white rounded-md text-sm font-bold">Save & Upload</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 const OverviewTab: React.FC = () => {
     const auth = useContext(AuthContext);
     const [dbStatus, setDbStatus] = useState(false);
     const [localStorageSize, setLocalStorageSize] = useState('0 KB');
+    const [logoEditorOpen, setLogoEditorOpen] = useState(false);
+    const [logoFileToEdit, setLogoFileToEdit] = useState<string | null>(null);
+    const logoInputRef = useRef<HTMLInputElement>(null);
     
     useEffect(() => {
         // Check IndexedDB
@@ -142,6 +322,9 @@ const OverviewTab: React.FC = () => {
         tickets = [],
         forumThreads = [],
         getPostsForThread,
+        siteLogo,
+        updateSiteLogo,
+        resetSiteLogo
     } = auth;
     
     const activeConnections = apiConnections.filter(c => c.isActive).length;
@@ -151,6 +334,29 @@ const OverviewTab: React.FC = () => {
     const totalPosts = forumThreads.reduce((acc, thread) => acc + (getPostsForThread?.(thread.id)?.length || 0), 0);
     const charsWithNarrativeSystem = characters.length; // Now all characters use it
     const summarizedCharacters = characters.filter(c => c.summary && Object.keys(c.summary).length > 0).length;
+    
+    const handleLogoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                setLogoFileToEdit(reader.result as string);
+                setLogoEditorOpen(true);
+                // Reset input so same file can be selected again
+                if (logoInputRef.current) logoInputRef.current.value = '';
+            };
+            reader.readAsDataURL(file);
+        }
+    }
+
+    const handleEditorSave = async (file: File) => {
+        try {
+            await updateSiteLogo(file);
+        } catch (error) {
+            console.error("Failed to upload logo:", error);
+            alert("Failed to upload logo. Please try again.");
+        }
+    };
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -176,6 +382,36 @@ const OverviewTab: React.FC = () => {
                     </div>
                 </Section>
             </div>
+             <Section title="Site Branding">
+                <div className="flex items-center justify-between gap-4">
+                    <div>
+                        <p className="text-sm text-text-secondary mb-2">Current Site Logo</p>
+                        <div className="p-4 bg-secondary border border-border rounded-md flex items-center justify-center h-20 w-full max-w-[200px]">
+                            <Logo className="h-12 w-auto" logoUrl={siteLogo} />
+                        </div>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <input type="file" ref={logoInputRef} onChange={handleLogoSelect} accept="image/*" className="hidden" />
+                        <button 
+                            onClick={() => logoInputRef.current?.click()} 
+                            className="flex items-center gap-2 px-4 py-2 bg-accent-secondary hover:bg-accent-secondary-hover text-white rounded-md text-sm disabled:bg-tertiary"
+                        >
+                            <UploadIcon className="w-4 h-4" />
+                            Select & Edit Logo
+                        </button>
+                        {siteLogo && (
+                            <button 
+                                onClick={() => resetSiteLogo()}
+                                className="flex items-center gap-2 px-4 py-2 bg-tertiary hover:bg-hover rounded-md text-sm text-text-secondary hover:text-text-primary"
+                            >
+                                <RefreshIcon className="w-4 h-4" />
+                                Reset to Default
+                            </button>
+                        )}
+                    </div>
+                </div>
+                <p className="text-xs text-text-secondary mt-2">Upload an image to replace the default site logo. You can crop and remove the background before applying.</p>
+            </Section>
             <Section title="API Connections">
                 {apiConnections.map(conn => (
                     <details key={conn.id} className="p-3 bg-tertiary rounded-md" open>
@@ -194,11 +430,11 @@ const OverviewTab: React.FC = () => {
             <Section title="Global Prompts">
                 <details>
                     <summary className="cursor-pointer font-semibold">Haven Prompt <span className="text-xs text-text-secondary">({globalSettings.havenPrompt ? 'Custom' : 'Default'})</span></summary>
-                    <pre className="text-xs font-mono bg-primary p-2 mt-1 rounded border border-border max-h-40 overflow-y-auto">{globalSettings.havenPrompt || HAVEN_PROMPT}</pre>
+                    <pre className="text-xs font-mono bg-primary p-2 mt-1 rounded border border-border max-h-40 overflow-y-auto">{globalSettings.havenPrompt || DEFAULT_HAVEN_PROMPT}</pre>
                 </details>
                  <details>
                     <summary className="cursor-pointer font-semibold">Beyond the Haven Prompt <span className="text-xs text-text-secondary">({globalSettings.beyondTheHavenPrompt ? 'Custom' : 'Default'})</span></summary>
-                    <pre className="text-xs font-mono bg-primary p-2 mt-1 rounded border border-border max-h-40 overflow-y-auto">{globalSettings.beyondTheHavenPrompt || BEYOND_THE_HAVEN_PROMPT}</pre>
+                    <pre className="text-xs font-mono bg-primary p-2 mt-1 rounded border border-border max-h-40 overflow-y-auto">{globalSettings.beyondTheHavenPrompt || DEFAULT_BEYOND_PROMPT}</pre>
                 </details>
                 <InfoRow label="Kid Mode" value={globalSettings.kidModePrompt ? 'Enabled' : 'Disabled'} status={!!globalSettings.kidModePrompt} />
             </Section>
@@ -226,6 +462,14 @@ const OverviewTab: React.FC = () => {
             <Section title="Static Chat Flow Diagram">
                 <ChatFlowDiagram />
             </Section>
+
+            {logoEditorOpen && logoFileToEdit && (
+                <LogoEditorModal 
+                    imageUrl={logoFileToEdit} 
+                    onClose={() => { setLogoEditorOpen(false); setLogoFileToEdit(null); }} 
+                    onSave={handleEditorSave} 
+                />
+            )}
         </div>
     );
 };
@@ -257,7 +501,7 @@ interface SimulationSlot {
 
 const LiveSimulationTab: React.FC = () => {
     const auth = useContext(AuthContext);
-    const { characters = [], currentUser, allUsers, findConnectionForModel, globalSettings, aiContextSettings, apiConnections, narrativeStates } = auth!;
+    const { characters = [], currentUser, allUsers, findConnectionForModel, globalSettings, aiContextSettings, apiConnections, narrativeStates } = auth || {} as any;
 
     const createDefaultSlot = (id: number): SimulationSlot => ({
         id,
@@ -287,7 +531,6 @@ const LiveSimulationTab: React.FC = () => {
     };
     
     useEffect(() => {
-        // When a character is selected in a lane, update its model override to the character's default.
         const updatedSims = simulations.map(sim => {
             const char = characters.find(c => c.id === sim.config.selectedCharId);
             if (char && sim.config.modelOverride === '') {
@@ -437,41 +680,41 @@ const LiveSimulationTab: React.FC = () => {
     );
 };
 
-
 const SystemMonitorView: React.FC = () => {
     const auth = useContext(AuthContext);
     const [activeTab, setActiveTab] = useState('overview');
-
-    if (!auth || auth.currentUser?.role !== 'Admin') {
-        return <p className="p-8 text-center text-red-400">Access Denied.</p>;
-    }
+    
+    if (!auth || auth.currentUser?.role !== 'Admin') return <p className="p-8 text-center text-red-400">Access Denied.</p>;
 
     const tabs = [
         { id: 'overview', label: 'System Overview' },
-        { id: 'simulation', label: 'Live Simulation' }
+        { id: 'live_sim', label: 'Live Simulation' },
     ];
 
     return (
         <div className="p-4 sm:p-6 md:p-8 w-full h-full flex flex-col">
-            <h1 className="text-3xl font-bold mb-6 text-text-primary flex items-center gap-3 flex-shrink-0">
-                <SystemMonitorIcon className="w-8 h-8"/> System Monitor
-            </h1>
+            <h1 className="text-3xl font-bold mb-6 text-text-primary flex items-center gap-3 flex-shrink-0"><SystemMonitorIcon className="w-8 h-8"/> System Monitor</h1>
             <div className="border-b border-border mb-6 flex-shrink-0">
-                <nav className="-mb-px flex space-x-6" aria-label="Tabs">
+                <nav className="-mb-px flex space-x-2 sm:space-x-6 overflow-x-auto" aria-label="Tabs">
                     {tabs.map(tab => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
-                            className={`${activeTab === tab.id ? 'border-accent-primary text-accent-primary' : 'border-transparent text-text-secondary hover:text-text-primary hover:border-border'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+                            className={`${
+                                activeTab === tab.id
+                                ? 'border-accent-primary text-accent-primary'
+                                : 'border-transparent text-text-secondary hover:text-text-primary hover:border-border'
+                            } whitespace-nowrap py-4 px-1 sm:px-2 border-b-2 font-medium text-sm flex items-center gap-2`}
                         >
                             {tab.label}
                         </button>
                     ))}
                 </nav>
             </div>
-            <div className="flex-1 overflow-y-auto">
+
+            <div className="bg-secondary p-4 sm:p-6 rounded-lg border border-border flex-1 overflow-y-auto">
                 {activeTab === 'overview' && <OverviewTab />}
-                {activeTab === 'simulation' && <LiveSimulationTab />}
+                {activeTab === 'live_sim' && <LiveSimulationTab />}
             </div>
         </div>
     );

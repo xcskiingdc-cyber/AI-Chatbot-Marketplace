@@ -1,8 +1,8 @@
 
-
 import React, { useState, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { CloseIcon } from './Icons';
+import { CloseIcon, SpinnerIcon } from './Icons';
+import Logo from './Logo';
 
 interface LoginModalProps {
   onClose: () => void;
@@ -14,21 +14,25 @@ const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const auth = useContext(AuthContext);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsProcessing(true);
     try {
       if (isLoginView) {
-        await auth?.login(username, password);
+        await auth?.login(email, password);
       } else {
         await auth?.signup(username, password, email);
       }
       onClose();
     } catch (err: any) {
       setError(err.message);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -47,6 +51,9 @@ const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
           <CloseIcon className="w-6 h-6" />
         </button>
         <div className="p-8">
+            <div className="flex justify-center mb-6">
+                <Logo className="h-14 w-auto" textColor="#E0DCD9" logoUrl={auth?.siteLogo} />
+            </div>
             <h2 className="text-3xl font-bold text-center text-text-primary mb-2">{isLoginView ? 'Welcome Back' : 'Create Account'}</h2>
             <p className="text-center text-text-secondary mb-6">{isLoginView ? 'Sign in to continue your story' : 'Get started with your own characters'}</p>
             
@@ -65,22 +72,39 @@ const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
             {error && <p className="bg-red-900/50 text-red-300 p-3 rounded-md mb-4 text-sm">{error}</p>}
             
             <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                    <label htmlFor="username" className={labelClasses}>Username</label>
-                    <input type="text" id="username" value={username} onChange={(e) => setUsername(e.target.value)} className={formFieldClasses} required autoComplete="username" />
-                </div>
-                {!isLoginView && (
+                {isLoginView && (
                     <div>
                         <label htmlFor="email" className={labelClasses}>Email</label>
                         <input type="email" id="email" value={email} onChange={(e) => setEmail(e.target.value)} className={formFieldClasses} required autoComplete="email" />
                     </div>
                 )}
+
+                {!isLoginView && (
+                    <>
+                        <div>
+                            <label htmlFor="username" className={labelClasses}>Username</label>
+                            <input type="text" id="username" value={username} onChange={(e) => setUsername(e.target.value)} className={formFieldClasses} required autoComplete="username" />
+                        </div>
+                        <div>
+                            <label htmlFor="email" className={labelClasses}>Email</label>
+                            <input type="email" id="email" value={email} onChange={(e) => setEmail(e.target.value)} className={formFieldClasses} required autoComplete="email" />
+                        </div>
+                    </>
+                )}
+
                 <div>
                     <label htmlFor="password" className={labelClasses}>Password</label>
                     <input type="password" id="password" value={password} onChange={(e) => setPassword(e.target.value)} className={formFieldClasses} required autoComplete={isLoginView ? "current-password" : "new-password"} />
                 </div>
-                <button type="submit" className="w-full py-3 bg-accent-primary hover:bg-accent-primary-hover rounded-md transition-colors font-semibold text-white">
-                    {isLoginView ? 'Login with Username' : 'Sign Up with Email'}
+                <button type="submit" className="w-full py-3 bg-accent-primary hover:bg-accent-primary-hover rounded-md transition-colors font-semibold text-white flex items-center justify-center gap-2" disabled={isProcessing}>
+                    {isProcessing ? (
+                        <>
+                            <SpinnerIcon className="w-5 h-5 animate-spin" />
+                            <span>Processing...</span>
+                        </>
+                    ) : (
+                        isLoginView ? 'Login with Email' : 'Sign Up with Email'
+                    )}
                 </button>
             </form>
             

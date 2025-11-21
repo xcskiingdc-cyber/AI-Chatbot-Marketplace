@@ -1,3 +1,4 @@
+
 import React, { useState, useContext, useMemo, useEffect, useCallback, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { User, Character, Report, Ticket, AIAlert, DMConversation, DirectMessage, TicketStatus, Comment, UserType, TicketFolder, DMFolder, Notification, AIAlertStatus, AppView, ForumThread, ForumPost } from '../types';
@@ -142,7 +143,7 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ openDmForUser, setSelectedChara
     const [searchTerm, setSearchTerm] = useState('');
     const [noteInputs, setNoteInputs] = useState<Record<string, string>>({});
     
-    const { reports = [], findUserById, characters = [], silenceUser, deleteUser, deleteCharacter, silenceCharacter, deleteComment, resolveReport, addNoteToReport, silenceComment } = auth || {};
+    const { reports = [], findUserById, characters = [], silenceUser, deleteUser, deleteCharacter, silenceCharacter, deleteComment, resolveReport, addNoteToReport, silenceComment } = auth || ({} as any);
 
     const filteredReports = useMemo(() => {
          return reports
@@ -281,7 +282,7 @@ const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelec
         aiAlertFolders = [], createAIAlertFolder, moveAIAlertToFolder,
         characters = [], allUsers, addNoteToAIAlert, updateAIAlertFeedback,
         forumThreads = [], getPostsForThread
-    } = auth || {};
+    } = auth || ({} as any);
 
     const [selectedAlert, setSelectedAlert] = useState<AIAlert | null>(null);
     const [selectedFolderId, setSelectedFolderId] = useState<string | null>('all');
@@ -560,7 +561,7 @@ const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelec
 
 const TicketingSystemTab: React.FC<{ openDmForUser: (user: User, sourceFolder: 'Ticketing System') => void; setSelectedCreator: (user: User) => void; }> = ({ openDmForUser, setSelectedCreator }) => {
     const auth = useContext(AuthContext);
-    const { tickets = [], findUserById, updateTicketStatus, ticketFolders, createTicketFolder, moveTicketToFolder } = auth || {};
+    const { tickets = [], findUserById, updateTicketStatus, ticketFolders, createTicketFolder, moveTicketToFolder } = auth || ({} as any);
     
     const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
     const [selectedFolderId, setSelectedFolderId] = useState<string | null>('all'); // 'all', 'uncategorized', or a folder ID
@@ -707,7 +708,6 @@ const ImagePreview: React.FC<{ src: string; onRemove: () => void }> = ({ src, on
     </div>
 );
 
-// FIX: Remove usage of deprecated `useIndexedDBImage` hook.
 const DMImage: React.FC<{ imageId: string }> = ({ imageId }) => {
     const imageUrl = imageId;
     if (!imageUrl) return <div className="w-48 h-32 bg-tertiary animate-pulse rounded-md mt-2" />;
@@ -720,7 +720,7 @@ const DMImage: React.FC<{ imageId: string }> = ({ imageId }) => {
 
 const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, sourceFolder?: 'Reports' | 'Ticketing System' | 'AI Alerts' } | null, setSelectedCreator: (user: User) => void}> = ({ preselectedUserContext, setSelectedCreator }) => {
     const auth = useContext(AuthContext);
-    const { allUsers = [], dmConversations = {}, sendDirectMessage, findUserById, markDMAsReadByAdmin, dmFolders, createDMFolder, moveDMConversationToFolder, markAllDMsAsReadByAdmin, currentUser } = auth || {};
+    const { allUsers = [], dmConversations = {}, sendDirectMessage, findUserById, markDMAsReadByAdmin, dmFolders, createDMFolder, moveDMConversationToFolder, markAllDMsAsReadByAdmin, currentUser } = auth || ({} as any);
     
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
     const [messageText, setMessageText] = useState('');
@@ -848,74 +848,72 @@ const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, source
                         <button onClick={handleCreateFolder} className="p-1 bg-tertiary hover:bg-hover rounded-md"><PlusIcon className="w-4 h-4" /></button>
                     </div>
                 </div>
-                 <div className="p-2 border-b border-border flex justify-end flex-shrink-0">
-                    {hasUnread && (
-                        <button 
-                            onClick={() => markAllDMsAsReadByAdmin?.()}
-                            className="text-xs text-accent-secondary hover:underline"
-                        >
-                            Mark all as read
-                        </button>
-                    )}
-                </div>
                 <div className="flex-1 overflow-y-auto">
                     {filteredUsers.map(user => (
-                        <button 
-                          key={user.id} 
-                          onClick={() => {
-                            setSelectedUser(user);
-                            if (dmConversations[user.id]?.hasUnreadByAdmin && markDMAsReadByAdmin) {
-                                markDMAsReadByAdmin(user.id);
-                            }
-                          }} 
-                          className={`w-full text-left p-3 flex items-center gap-3 hover:bg-hover ${selectedUser?.id === user.id ? 'bg-hover' : ''}`}
-                        >
-                            <Avatar imageId={user.profile.avatarUrl} alt={user.profile.name} className="w-8 h-8 rounded-full object-cover" />
-                            <span className="truncate flex-1">{user.profile.name}</span>
-                            {dmConversations[user.id]?.hasUnreadByAdmin && (
-                                <span className="w-2.5 h-2.5 bg-accent-primary rounded-full flex-shrink-0"></span>
-                            )}
+                         <button key={user.id} onClick={() => setSelectedUser(user)} className={`w-full text-left p-3 border-b border-border hover:bg-hover ${selectedUser?.id === user.id ? 'bg-hover' : ''}`}>
+                            <div className="flex items-center gap-3">
+                                <Avatar imageId={user.profile.avatarUrl} alt={user.profile.name} className="w-10 h-10 rounded-full object-cover"/>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex justify-between items-baseline">
+                                        <p className="font-semibold truncate">{user.profile.name}</p>
+                                        {dmConversations[user.id]?.hasUnreadByAdmin && <span className="h-2 w-2 bg-accent-primary rounded-full"></span>}
+                                    </div>
+                                    <p className="text-xs text-text-secondary truncate">{user.profile.email}</p>
+                                </div>
+                            </div>
                         </button>
                     ))}
                 </div>
             </div>
-            <div className="w-3/5 xl:w-2/3 flex flex-col">
+            <div className="w-3/5 xl:w-2/3 flex flex-col p-4">
                 {selectedUser ? (
-                    <>
-                        <div className="p-3 border-b border-border flex items-center justify-between gap-3 flex-shrink-0">
-                            <button onClick={() => setSelectedCreator(selectedUser)} className="flex items-center gap-3 hover:opacity-80">
-                                <Avatar imageId={selectedUser.profile.avatarUrl} alt={selectedUser.profile.name} className="w-10 h-10 rounded-full object-cover" />
-                                <h3 className="font-bold">{selectedUser.profile.name}</h3>
-                            </button>
-                             <div className="flex items-center gap-2">
-                                <span className="text-sm text-text-secondary">Move to:</span>
-                                <select value={currentConversation?.folderId || ''} onChange={e => moveDMConversationToFolder?.(selectedUser.id, e.target.value || null)} className="bg-tertiary border border-border rounded-md p-2 text-sm" disabled={!currentConversation}>
-                                    <option value="">Uncategorized</option>
-                                    {dmFolders?.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                                </select>
+                    <div className="flex flex-col h-full">
+                        <div className="border-b border-border pb-3 mb-3 flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => setSelectedCreator(selectedUser)} className="hover:opacity-80">
+                                    <Avatar imageId={selectedUser.profile.avatarUrl} alt={selectedUser.profile.name} className="w-10 h-10 rounded-full object-cover"/>
+                                </button>
+                                <div>
+                                    <h3 className="font-bold">{selectedUser.profile.name}</h3>
+                                    {currentConversation && (
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <span className="text-xs text-text-secondary">Folder:</span>
+                                            <select 
+                                                value={currentConversation.folderId || ''} 
+                                                onChange={e => moveDMConversationToFolder?.(selectedUser.id, e.target.value || null)} 
+                                                className="bg-tertiary border border-border rounded px-1 text-xs"
+                                            >
+                                                <option value="">Uncategorized</option>
+                                                {dmFolders?.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                                            </select>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
+                             {currentConversation?.hasUnreadByAdmin && (
+                                <button onClick={() => markDMAsReadByAdmin?.(selectedUser.id)} className="text-xs text-accent-secondary hover:underline">Mark Read</button>
+                            )}
                         </div>
-                        <div className="flex-1 p-4 space-y-4 overflow-y-auto">
-                           {currentConversation?.messages.map(msg => {
+                        
+                        <div className="flex-1 overflow-y-auto bg-primary p-4 rounded-lg mb-4 space-y-4">
+                            {currentConversation?.messages.map(msg => {
                                 const isFromAdmin = msg.senderId === 'ADMIN';
-                                const sender = isFromAdmin ? auth?.currentUser : findUserById(msg.senderId);
                                 return (
-                                    <div key={msg.id} className={`flex items-start gap-3 ${isFromAdmin ? 'justify-end' : 'justify-start'}`}>
-                                        {!isFromAdmin && sender && <Avatar imageId={sender.profile.avatarUrl} alt={sender.profile.name} className="w-8 h-8 rounded-full object-cover" />}
-                                        <div className={`px-4 py-2 rounded-lg max-w-lg ${isFromAdmin ? 'bg-accent-primary text-white' : 'bg-tertiary'}`}>
+                                    <div key={msg.id} className={`flex flex-col ${isFromAdmin ? 'items-end' : 'items-start'}`}>
+                                        <div className={`max-w-[80%] px-4 py-2 rounded-lg ${isFromAdmin ? 'bg-accent-primary text-white' : 'bg-tertiary'}`}>
                                             {msg.imageUrl && <DMImage imageId={msg.imageUrl} />}
                                             {msg.text && <p className={msg.imageUrl ? 'mt-2' : ''}>{msg.text}</p>}
-                                            <p className="text-xs opacity-70 mt-1 text-right">{new Date(msg.timestamp).toLocaleTimeString()}</p>
                                         </div>
-                                        {isFromAdmin && sender && <Avatar imageId={sender.profile.avatarUrl} alt={sender.profile.name} className="w-8 h-8 rounded-full object-cover" />}
+                                        <span className="text-xs text-text-secondary mt-1">{new Date(msg.timestamp).toLocaleTimeString()}</span>
                                     </div>
-                                );
-                           })}
-                           <div ref={messagesEndRef} />
+                                )
+                            })}
+                            <div ref={messagesEndRef} />
                         </div>
-                        <div className="p-3 border-t border-border bg-secondary flex-shrink-0">
+
+                        <div className="border-t border-border pt-3 bg-secondary">
                              {imagePreview && <ImagePreview src={imagePreview} onRemove={() => { if(imagePreview) URL.revokeObjectURL(imagePreview); setImageFile(null); setImagePreview(null); }} />}
-                            <div className="flex items-center gap-2">
+                             <div className="flex items-center gap-2">
                                 <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/jpeg" className="hidden" />
                                 <button onClick={() => fileInputRef.current?.click()} className="p-2 text-text-secondary hover:text-text-primary">
                                     <UploadIcon className="w-5 h-5"/>
@@ -934,16 +932,20 @@ const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, source
                                 </button>
                             </div>
                         </div>
-                    </>
+                    </div>
                 ) : (
-                    <div className="flex items-center justify-center h-full text-text-secondary">
-                        <p>Select a user to start a conversation.</p>
+                    <div className="flex items-center justify-center h-full text-text-secondary flex-col gap-4">
+                        <p>Select a conversation to view messages.</p>
+                         {hasUnread && (
+                             <button onClick={() => markAllDMsAsReadByAdmin?.()} className="px-4 py-2 bg-tertiary hover:bg-hover rounded-md text-sm">
+                                Mark All DMs as Read
+                            </button>
+                         )}
                     </div>
                 )}
             </div>
         </div>
     );
 };
-
 
 export default ModeratorConsoleView;

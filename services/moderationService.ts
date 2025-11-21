@@ -1,83 +1,61 @@
+
 import { analyzeContentWithGemini } from './aiService';
-import { fileToBase64 } from '../utils/imageUtils';
 import { ApiConnection } from '../types';
+import { Schema, Type } from '@google/genai';
 
 const TEXT_MODERATION_PROMPT = `You are an AI content moderator. Analyze the following text content from a user. Check for violations in these categories: underage-themes, racism, bullying, non-consensual-sexual-acts. Respond ONLY with a JSON object. The JSON should have 'isViolation' (boolean), 'category' (string from the list or null), 'confidence' (number 0-1), 'flaggedText' (the specific text snippet that is problematic, or null), and 'explanation' (a brief, one-sentence explanation of why the text was flagged, or null).`;
-const textModSchema = {
-    type: 'OBJECT',
+
+const textModSchema: Schema = {
+    type: Type.OBJECT,
     properties: {
-        isViolation: { type: 'BOOLEAN' },
-        category: { type: 'STRING' },
-        confidence: { type: 'NUMBER' },
-        flaggedText: { type: 'STRING' },
-        explanation: { type: 'STRING' },
+        isViolation: { type: Type.BOOLEAN },
+        category: { type: Type.STRING, nullable: true },
+        confidence: { type: Type.NUMBER },
+        flaggedText: { type: Type.STRING, nullable: true },
+        explanation: { type: Type.STRING, nullable: true },
     },
     required: ['isViolation', 'confidence'],
 };
 
 const IMAGE_MODERATION_PROMPT = `You are an AI content moderator. Analyze the following image. Check for violations in these categories: explicit-nudity, suggestive-content, violence, hate-symbols. Respond ONLY with a JSON object. The JSON should have 'isViolation' (boolean), 'category' (string from the list or null), 'confidence' (number 0-1), and 'explanation' (a brief, one-sentence explanation of why the image was flagged, or null).`;
-const imageModSchema = {
-    type: 'OBJECT',
+
+const imageModSchema: Schema = {
+    type: Type.OBJECT,
     properties: {
-        isViolation: { type: 'BOOLEAN' },
-        category: { type: 'STRING' },
-        confidence: { type: 'NUMBER' },
-        explanation: { type: 'STRING' },
+        isViolation: { type: Type.BOOLEAN },
+        category: { type: Type.STRING, nullable: true },
+        confidence: { type: Type.NUMBER },
+        explanation: { type: Type.STRING, nullable: true },
     },
     required: ['isViolation', 'confidence'],
 };
 
-
-interface ModerationResult {
+export interface ModerationResult {
     isViolation: boolean;
-    category: string | null;
+    category?: string;
     confidence: number;
-    flaggedText?: string | null;
-    explanation?: string | null;
+    flaggedText?: string;
+    explanation?: string;
 }
 
-const extractJson = (text: string): string => {
-    // Regular expression to find a JSON block within triple backticks
-    const jsonRegex = /```(json)?\s*([\s\S]*?)\s*```/;
-    const match = text.match(jsonRegex);
-
-    // If a match is found, return the captured JSON string, otherwise return the original text
-    if (match && match[2]) {
-        return match[2];
-    }
-    return text;
-};
-
-export const scanText = async (text: string, activeConnection: ApiConnection): Promise<ModerationResult | null> => {
-    if (!text.trim()) return null;
-
+export const scanText = async (text: string, connection: ApiConnection): Promise<ModerationResult | null> => {
     try {
-        const resultJson = await analyzeContentWithGemini(TEXT_MODERATION_PROMPT, { text }, activeConnection, textModSchema);
-        const cleanedJson = extractJson(resultJson);
-        const result = JSON.parse(cleanedJson);
-        return result.isViolation ? result : null;
+        const resultText = await analyzeContentWithGemini(TEXT_MODERATION_PROMPT, { text }, connection, textModSchema);
+        if (!resultText) return null;
+        return JSON.parse(resultText) as ModerationResult;
     } catch (error) {
-        console.error("Failed to moderate text:", error);
+        console.error("Text moderation failed:", error);
         return null;
     }
 };
 
-export const scanImage = async (imageBlob: Blob, activeConnection: ApiConnection): Promise<ModerationResult | null> => {
+export const scanImage = async (base64Image: string, mimeType: string, connection: ApiConnection): Promise<ModerationResult | null> => {
     try {
-        // FIX: Convert Blob to File to satisfy the `fileToBase64` function signature.
-        const imageFile = new File([imageBlob], 'image.png', { type: imageBlob.type });
-        const base64DataUrl = await fileToBase64(imageFile);
-        const base64String = base64DataUrl.split(',')[1];
-        
-        const resultJson = await analyzeContentWithGemini(IMAGE_MODERATION_PROMPT, { 
-            imageBase64: base64String, 
-            imageMimeType: imageBlob.type 
-        }, activeConnection, imageModSchema);
-        const cleanedJson = extractJson(resultJson);
-        const result = JSON.parse(cleanedJson);
-        return result.isViolation ? result : null;
+        const resultText = await analyzeContentWithGemini(IMAGE_MODERATION_PROMPT, { imageBase64: base64Image, imageMimeType: mimeType }, connection, imageModSchema);
+        if (!resultText) return null;
+        return JSON.parse(resultText) as ModerationResult;
     } catch (error) {
-        console.error("Failed to moderate image:", error);
+        console.error("Image moderation failed:", error);
         return null;
     }
 };

@@ -8,15 +8,22 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css" />
   <script>
+    // Shim process for browser environment to prevent "process is not defined" errors
+    window.process = { env: { NODE_ENV: 'development' } };
+  </script>
+  <script>
     tailwind.config = {
       theme: {
         extend: {
           colors: {
             'primary': '#242221',        // Dark warm charcoal/brown
+            'primary-glass': 'rgba(36, 34, 33, 0.7)',
             'secondary': '#3A3633',      // Lighter warm grey/brown
+            'secondary-glass': 'rgba(58, 54, 51, 0.6)',
             'tertiary': '#4A4643',       // For inputs/borders
+            'tertiary-glass': 'rgba(74, 70, 67, 0.5)',
             'hover': '#5A5653',          // Hover state
-            'border': '#4A4643',         // Border color
+            'border': 'rgba(255, 255, 255, 0.08)',         // Border color
             'text-primary': '#E0DCD9',   // Warm off-white
             'text-secondary': '#A09A96', // Muted warm grey
             'accent-primary': '#9E2A2B', // Maroon
@@ -32,8 +39,30 @@
             serif: ['Playfair Display', 'serif'],
           },
           boxShadow: {
-            'soft-lg': '0 10px 30px -5px rgba(0, 0, 0, 0.4), 0 8px 15px -6px rgba(0, 0, 0, 0.3)',
+            'soft-lg': '0 10px 30px -5px rgba(0, 0, 0, 0.5), 0 8px 15px -6px rgba(0, 0, 0, 0.3)',
+            'glow': '0 0 15px rgba(176, 137, 104, 0.3)',
           },
+          animation: {
+            'blob': 'blob 10s infinite',
+            'fade-in': 'fadeIn 0.5s ease-out',
+            'slide-up': 'slideUp 0.5s ease-out',
+          },
+          keyframes: {
+            blob: {
+              '0%': { transform: 'translate(0px, 0px) scale(1)' },
+              '33%': { transform: 'translate(30px, -50px) scale(1.1)' },
+              '66%': { transform: 'translate(-20px, 20px) scale(0.9)' },
+              '100%': { transform: 'translate(0px, 0px) scale(1)' },
+            },
+            fadeIn: {
+              '0%': { opacity: '0' },
+              '100%': { opacity: '1' },
+            },
+            slideUp: {
+              '0%': { transform: 'translateY(20px)', opacity: '0' },
+              '100%': { transform: 'translateY(0)', opacity: '1' },
+            }
+          }
         }
       }
     }
@@ -45,12 +74,13 @@
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0"
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0",
+    "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm"
   }
 }
 </script>
 </head>
-<body class="bg-primary text-text-primary">
+<body class="bg-primary text-text-primary min-h-screen overflow-hidden">
   <div id="root"></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
   <script type="module" src="/index.tsx"></script>

@@ -1,13 +1,13 @@
 
-
 import React, { useState, useEffect, useContext, useRef, useMemo } from 'react';
 import { Character, CharacterStat, StatRule, ApiConnection } from '../types';
-import { UploadIcon, DeleteIcon, QuestionMarkCircleIcon, SpinnerIcon, RefreshIcon, CloseIcon, PlusIcon } from './Icons';
+import { UploadIcon, DeleteIcon, QuestionMarkCircleIcon, SpinnerIcon, RefreshIcon, CloseIcon, PlusIcon, CropIcon } from './Icons';
 import { AuthContext } from '../context/AuthContext';
 import CharacterHelpModal from './CharacterHelpModal';
-import { generateCharacterImage } from '../services/aiService';
+import { generateCharacterImage, summarizeCharacterData } from '../services/aiService';
 
-const DEFAULT_CHARACTER_AVATAR = 'data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJ3aGl0ZSIvPjxwYXRoIGQ9Ik0xMiAyQzkuMjQzIDIgNyA0LjI0MyA3IDdzMi4yNDMgNSA1IDUgNS0yLjI0MyA1LTUtMi4yNDMtNS01LT V6bTAgMTBjLTMuODYgMC03IDMuMTQtNyA3aDE0YzAtMy44Ni0zLjE0LTctNy03eiIgZmlsbD0iIzI0MjIyMSIvPjwvc3ZnPg==';
+// A valid, standard placeholder image (white rectangle) to prevent base64 parsing errors
+const DEFAULT_CHARACTER_AVATAR = 'data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJ3aGl0ZSIvPjxwYXRoIGQ9Ik0xMiAyQzkuMjQzIDIgNyA0LjI0MyA3IDdzMi4yNDMgNSA1IDUgNS0yLjI0MyA1LTUtMi4yNDMtNS01LTV6bTAgMTBjLTMuODYgMC03IDMuMTQtNyA3aDE0YzAtMy44Ni0zLjE0LTctNy03eiIgZmlsbD0iIzI0MjIyMSIvPjwvc3ZnPg==';
 
 declare let Cropper: any;
 
@@ -20,26 +20,23 @@ interface CharacterFormProps {
 
 const categories = ["Fantasy", "Sci-Fi", "Romance", "Horror", "Adventure", "Mystery", "Anime", "Historical"];
 
-
 const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existingCharacter, isUserAdult = false }) => {
   const auth = useContext(AuthContext);
-  const { apiConnections = [], findConnectionForModel, findConnectionForTool } = auth || {};
+  const { apiConnections = [], findConnectionForModel, findConnectionForTool } = auth || ({} as any);
 
   const getDefaultModel = () => {
-    // Prioritize gemini-2.5-flash if available in any active connection
     const geminiFlashModel = apiConnections
-      .filter(c => c.isActive)
-      .flatMap(c => c.models)
-      .find(m => m === 'gemini-2.5-flash');
+      .filter((c: any) => c.isActive)
+      .flatMap((c: any) => c.models)
+      .find((m: string) => m === 'gemini-2.5-flash');
 
     if (geminiFlashModel) {
       return geminiFlashModel;
     }
     
-    // Fallback to the first available model from an active connection
     for (const conn of apiConnections) {
         if (conn.isActive && conn.models.length > 0) {
-            const firstChatModel = conn.models.find(m => !m.includes('tts') && !m.includes('imagen'));
+            const firstChatModel = conn.models.find((m: string) => !m.includes('tts') && !m.includes('imagen'));
             if (firstChatModel) {
                 return firstChatModel;
             }
@@ -49,7 +46,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
     return '';
   };
   
-  const modelExists = (modelName: string) => apiConnections.some(c => c.models.includes(modelName));
+  const modelExists = (modelName: string) => apiConnections.some((c: any) => c.models.includes(modelName));
 
   const [character, setCharacter] = useState(
     existingCharacter
@@ -83,7 +80,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
   const [previewUrl, setPreviewUrl] = useState<string | null>(existingCharacter?.avatarUrl || null);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
-  const [generatedImage, setGeneratedImage] = useState<string | null>(null); // Store base64 string
+  const [generatedImage, setGeneratedImage] = useState<string | null>(null); 
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   
@@ -91,7 +88,6 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
   const [colorPalette, setColorPalette] = useState('no-preference');
   const [styleKeywords, setStyleKeywords] = useState('');
 
-  // Cropper state
   const [isCropperOpen, setIsCropperOpen] = useState(false);
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
   const cropperImageRef = useRef<HTMLImageElement>(null);
@@ -99,7 +95,6 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
   
 
   useEffect(() => {
-      // Cleanup object URLs to prevent memory leaks
       return () => {
           if (previewUrl && previewUrl.startsWith('blob:')) {
               URL.revokeObjectURL(previewUrl);
@@ -143,10 +138,10 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
 
   const handleCategoryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { value, checked } = e.target;
-    setCharacter(prev => {
+    setCharacter((prev: any) => {
         const newCategories = checked
             ? [...prev.categories, value]
-            : prev.categories.filter(c => c !== value);
+            : prev.categories.filter((c: string) => c !== value);
         return { ...prev, categories: newCategories };
     });
   };
@@ -161,6 +156,13 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const handleReCrop = () => {
+      if (previewUrl) {
+          setImageToCrop(previewUrl);
+          setIsCropperOpen(true);
+      }
   };
   
   const handleCropSave = () => {
@@ -185,7 +187,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
       if (previewUrl && previewUrl.startsWith('blob:')) {
           URL.revokeObjectURL(previewUrl);
       }
-      setPreviewUrl(null); // This will show the placeholder
+      setPreviewUrl(null); 
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -199,9 +201,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
     
     let finalCharacterData: any = { ...character, isSilencedByAdmin: existingCharacter?.isSilencedByAdmin || false };
 
-    // The logic to save the image and set the avatarUrl is now handled in AuthContext.
-    // We just pass the selectedFile to the onSave handler.
-    if (previewUrl === null) { // This means the user removed the avatar
+    if (previewUrl === null) { 
         finalCharacterData.avatarUrl = DEFAULT_CHARACTER_AVATAR;
     }
     
@@ -214,11 +214,46 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
         finalCharacterData.isPublic = false;
     }
 
+    // Generate Summary if possible
+    if (findConnectionForTool) {
+        const summaryConnection = findConnectionForTool('characterSummarization');
+        if (summaryConnection) {
+            try {
+                const summary = await summarizeCharacterData(finalCharacterData, summaryConnection);
+                finalCharacterData.summary = summary;
+            } catch (summaryError) {
+                console.warn("Character summarization failed, saving without new summary:", summaryError);
+                // Proceed with saving even if summarization fails, keeping existing summary if any
+            }
+        }
+    }
+
     try {
         await onSave(finalCharacterData, selectedFile);
-    } catch (err) {
+    } catch (err: any) {
         console.error("Error during character save:", err);
-        alert("An error occurred while saving the character. Please try again.");
+        let errorMessage = "An unknown error occurred.";
+        
+        if (typeof err === 'string') {
+            errorMessage = err;
+        } else if (err instanceof Error) {
+            errorMessage = err.message;
+        } else if (typeof err === 'object' && err !== null) {
+            // Try to stringify object errors to see details (e.g. PostgrestError)
+            try {
+                errorMessage = JSON.stringify(err, null, 2);
+                if (err.message) errorMessage = err.message; // Prefer message if available
+                if (err.error_description) errorMessage = err.error_description;
+            } catch (e) {
+                errorMessage = "An object error occurred but could not be stringified.";
+            }
+        }
+        
+        if (errorMessage.includes('row-level security')) {
+             alert("Permission denied. You may not be able to edit this character.");
+        } else {
+             alert(`Error saving character: ${errorMessage}`);
+        }
     } finally {
         setIsSaving(false);
     }
@@ -227,7 +262,6 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
   const constructImagePrompt = (): string => {
     let prompt = `Generate a vertical portrait (9:16 aspect ratio) of a fictional character. The style should be dramatic and evocative, suitable for a story. Do not include any text, watermarks, or signatures in the image.\n\n`;
     
-    // Character details
     prompt += `**Character Name:** ${character.name || 'Unnamed'}\n`;
     prompt += `**Gender:** ${character.gender || 'unspecified'}\n`;
     prompt += `**Appearance:** ${character.appearance || 'No specific appearance.'}\n`;
@@ -235,7 +269,6 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
         prompt += `**Current Mood:** ${character.feeling}\n`;
     }
     
-    // Scene and context
     if (character.situation) {
         prompt += `**Current Situation & Environment:** ${character.situation}\n`;
     }
@@ -243,7 +276,6 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
         prompt += `**Key Personality Traits:** ${character.personality}\n`;
     }
 
-    // Style guidance section
     prompt += `\n**Artistic Style Guidance:**\n`
     if (artStyle !== 'no-preference') {
         prompt += `**Art Style:** ${artStyle.replace(/-/g, ' ')}\n`;
@@ -303,7 +335,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
         const dataUrl = `data:image/png;base64,${generatedImage}`;
         setImageToCrop(dataUrl);
         setIsCropperOpen(true);
-        setGeneratedImage(null); // Clear the generated image preview
+        setGeneratedImage(null); 
     }
   };
 
@@ -313,8 +345,6 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
       </button>
   );
   
-  // --- Stat System Handlers ---
-
   const handleStatChange = (statIndex: number, field: keyof CharacterStat, value: any) => {
     const newStats = [...character.stats];
     (newStats[statIndex] as any)[field] = value;
@@ -332,11 +362,11 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
       increaseRules: [],
       decreaseRules: [],
     };
-    setCharacter(prev => ({ ...prev, stats: [...prev.stats, newStat] }));
+    setCharacter((prev: any) => ({ ...prev, stats: [...prev.stats, newStat] }));
   };
 
   const removeStat = (statIndex: number) => {
-    setCharacter(prev => ({ ...prev, stats: prev.stats.filter((_, i) => i !== statIndex) }));
+    setCharacter((prev: any) => ({ ...prev, stats: prev.stats.filter((_: any, i: number) => i !== statIndex) }));
   };
 
   const handleRuleChange = (statIndex: number, ruleType: 'increase' | 'decrease', ruleIndex: number, field: keyof StatRule, value: any) => {
@@ -360,9 +390,9 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
   const removeRule = (statIndex: number, ruleType: 'increase' | 'decrease', ruleIndex: number) => {
     const newStats = [...character.stats];
     if (ruleType === 'increase') {
-      newStats[statIndex].increaseRules = newStats[statIndex].increaseRules.filter((_, i) => i !== ruleIndex);
+      newStats[statIndex].increaseRules = newStats[statIndex].increaseRules.filter((_: any, i: number) => i !== ruleIndex);
     } else {
-      newStats[statIndex].decreaseRules = newStats[statIndex].decreaseRules.filter((_, i) => i !== ruleIndex);
+      newStats[statIndex].decreaseRules = newStats[statIndex].decreaseRules.filter((_: any, i: number) => i !== ruleIndex);
     }
     setCharacter(prev => ({ ...prev, stats: newStats }));
   };
@@ -370,7 +400,6 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
 
   const formFieldClasses = "w-full p-2 bg-tertiary border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent-secondary text-text-primary transition-shadow duration-200 focus:shadow-inner focus:bg-primary";
   const labelClasses = "block text-sm font-medium text-text-secondary mb-1";
-  const defaultAvatar = DEFAULT_CHARACTER_AVATAR;
 
   const ImageCropperModal = (
      <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
@@ -383,7 +412,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
         </div>
         <div className="p-6 flex-1 overflow-hidden">
           <div className="w-full h-full bg-tertiary">
-            <img ref={cropperImageRef} src={imageToCrop || ''} alt="Source" style={{ display: 'block', maxWidth: '100%' }} />
+            <img ref={cropperImageRef} src={imageToCrop || ''} crossOrigin="anonymous" alt="Source" style={{ display: 'block', maxWidth: '100%' }} />
           </div>
         </div>
         <div className="p-4 bg-secondary/50 border-t border-border flex justify-end gap-4">
@@ -412,13 +441,21 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
             <div className="md:col-span-1">
                 <label className={labelClasses}>Avatar</label>
                 <div className="mt-2 flex flex-col items-center gap-4">
-                    <img src={previewUrl || defaultAvatar} alt="Avatar Preview" className="w-48 h-[267px] rounded-lg object-cover bg-tertiary"/>
-                    <div className="flex items-center gap-2">
+                    <img src={previewUrl || DEFAULT_CHARACTER_AVATAR} alt="Avatar Preview" className="w-48 h-[267px] rounded-lg object-cover bg-tertiary"/>
+                    <div className="flex items-center gap-2 flex-wrap justify-center">
                         <label htmlFor="avatar-upload" className="cursor-pointer bg-tertiary hover:bg-hover text-text-primary font-bold py-2 px-4 rounded-md inline-flex items-center gap-2 text-sm">
                             <UploadIcon className="w-4 h-4" />
                             <span>Upload</span>
                         </label>
                         <input id="avatar-upload" type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
+                        
+                        {previewUrl && (
+                            <button type="button" onClick={handleReCrop} className="bg-tertiary hover:bg-hover text-text-primary font-bold py-2 px-4 rounded-md inline-flex items-center gap-2 text-sm">
+                                <CropIcon className="w-4 h-4" />
+                                <span>Crop</span>
+                            </button>
+                        )}
+
                         <button type="button" onClick={handleRemoveAvatar} className="bg-red-700 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md inline-flex items-center gap-2 text-sm">
                             <DeleteIcon className="w-4 h-4" />
                             <span>Remove</span>
@@ -501,14 +538,14 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
                 Stats Visible to User
                 <p className="text-xs text-text-secondary">If enabled, stat changes will be shown to the user after your replies.</p>
               </label>
-              <div className="relative cursor-pointer" onClick={() => setCharacter(prev => ({...prev, statsVisible: !prev.statsVisible}))}>
+              <div className="relative cursor-pointer" onClick={() => setCharacter((prev: any) => ({...prev, statsVisible: !prev.statsVisible}))}>
                 <input type="checkbox" id="statsVisible" name="statsVisible" checked={character.statsVisible} readOnly className="sr-only" />
                 <div className={`block w-14 h-8 rounded-full ${character.statsVisible ? 'bg-accent-primary' : 'bg-secondary'}`}></div>
                 <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${character.statsVisible ? 'transform translate-x-6' : ''}`}></div>
               </div>
             </div>
             
-            {character.stats.map((stat, statIndex) => (
+            {character.stats.map((stat: CharacterStat, statIndex: number) => (
               <div key={stat.id} className="p-4 bg-primary border border-border rounded-lg space-y-4">
                 <div className="flex justify-between items-start">
                   <input 
@@ -541,7 +578,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <h4 className="font-semibold text-success">Increase Rules</h4>
-                    {stat.increaseRules.map((rule, ruleIndex) => (
+                    {stat.increaseRules.map((rule: StatRule, ruleIndex: number) => (
                       <div key={rule.id} className="flex items-center gap-2">
                         <input type="text" value={rule.description} onChange={e => handleRuleChange(statIndex, 'increase', ruleIndex, 'description', e.target.value)} placeholder="When user..." className="flex-1 bg-secondary border border-border p-1 rounded text-sm"/>
                         <input type="number" value={rule.value} onChange={e => handleRuleChange(statIndex, 'increase', ruleIndex, 'value', parseInt(e.target.value))} className="w-16 bg-secondary border border-border p-1 rounded text-sm"/>
@@ -552,7 +589,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
                   </div>
                    <div className="space-y-2">
                     <h4 className="font-semibold text-danger">Decrease Rules</h4>
-                    {stat.decreaseRules.map((rule, ruleIndex) => (
+                    {stat.decreaseRules.map((rule: StatRule, ruleIndex: number) => (
                       <div key={rule.id} className="flex items-center gap-2">
                         <input type="text" value={rule.description} onChange={e => handleRuleChange(statIndex, 'decrease', ruleIndex, 'description', e.target.value)} placeholder="When user..." className="flex-1 bg-secondary border border-border p-1 rounded text-sm"/>
                         <input type="number" value={rule.value} onChange={e => handleRuleChange(statIndex, 'decrease', ruleIndex, 'value', parseInt(e.target.value))} className="w-16 bg-secondary border border-border p-1 rounded text-sm"/>
@@ -572,9 +609,9 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
             <div>
               <label htmlFor="model" className={labelClasses}>AI Model</label>
               <select id="model" name="model" value={character.model} onChange={handleChange} className={formFieldClasses}>
-                {apiConnections.map(conn => (
+                {apiConnections.map((conn: any) => (
                   <optgroup key={conn.id} label={`${conn.name} (${conn.provider})`}>
-                    {conn.models.filter(m => !m.includes('tts')).map(modelName => (
+                    {conn.models.filter((m: string) => !m.includes('tts')).map((modelName: string) => (
                       <option key={modelName} value={modelName}>{modelName}</option>
                     ))}
                   </optgroup>

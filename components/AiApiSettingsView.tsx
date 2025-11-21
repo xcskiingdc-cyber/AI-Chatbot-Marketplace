@@ -131,6 +131,8 @@ const ApiConnectionModal: React.FC<{
 
     if (!isOpen) return null;
 
+    const isDefaultConnection = existingConnection?.id === 'google-ai-studio-default-connection';
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         onSave({
@@ -164,7 +166,11 @@ const ApiConnectionModal: React.FC<{
                     </div>
                      <div>
                         <label htmlFor="apiKey" className={labelClasses}>API Key *</label>
-                        <input type="password" id="apiKey" value={connection.apiKey} onChange={e => setConnection(c => ({...c, apiKey: e.target.value}))} className={formFieldClasses} required />
+                        {isDefaultConnection ? (
+                             <input type="text" id="apiKey" value="Using built-in key" className={`${formFieldClasses} bg-hover cursor-not-allowed`} disabled />
+                        ) : (
+                             <input type="password" id="apiKey" value={connection.apiKey} onChange={e => setConnection(c => ({...c, apiKey: e.target.value}))} className={formFieldClasses} required />
+                        )}
                     </div>
                      <div>
                         <label htmlFor="baseUrl" className={labelClasses}>Base URL (Optional)</label>

@@ -1,3 +1,4 @@
+
 import React, { useState, useContext, useMemo, useEffect, useCallback, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext';
 // FIX: Import UserProfile to resolve the 'Cannot find name' error.
@@ -6,7 +7,7 @@ import ConfirmationModal from './ConfirmationModal';
 import ProfileEditModal from './ProfileEditModal';
 import Avatar from './Avatar';
 import { ShieldCheckIcon, SaveIcon } from './Icons';
-import { BEYOND_THE_HAVEN_PROMPT, HAVEN_PROMPT } from '../services/aiService';
+import { DEFAULT_BEYOND_PROMPT, DEFAULT_HAVEN_PROMPT } from '../services/aiService';
 
 interface AdminConsoleViewProps {
   setView: (view: AppView) => void;
@@ -74,7 +75,7 @@ const StatCard: React.FC<{ title: string; value?: number | string, children?: Re
 
 const SiteStatsTab: React.FC = () => {
     const auth = useContext(AuthContext);
-    const { allUsers = [], characters = [] } = auth || {};
+    const { allUsers = [], characters = [] } = auth || ({} as any);
 
     const publicChars = characters.filter(c => c.isPublic).length;
     const privateChars = characters.length - publicChars;
@@ -109,7 +110,7 @@ const SiteStatsTab: React.FC = () => {
 
 const GlobalPromptsTab: React.FC = () => {
     const auth = useContext(AuthContext);
-    const [prompts, setPrompts] = useState<Omit<GlobalSettings, 'kidModePrompt'>>({ 
+    const [prompts, setPrompts] = useState<Omit<GlobalSettings, 'kidModePrompt' | 'enableAIModeration'>>({ 
         havenPrompt: '',
         beyondTheHavenPrompt: '',
     });
@@ -118,8 +119,8 @@ const GlobalPromptsTab: React.FC = () => {
     useEffect(() => {
         if (auth?.globalSettings) {
             setPrompts({
-                havenPrompt: auth.globalSettings.havenPrompt || HAVEN_PROMPT,
-                beyondTheHavenPrompt: auth.globalSettings.beyondTheHavenPrompt || BEYOND_THE_HAVEN_PROMPT,
+                havenPrompt: auth.globalSettings.havenPrompt || DEFAULT_HAVEN_PROMPT,
+                beyondTheHavenPrompt: auth.globalSettings.beyondTheHavenPrompt || DEFAULT_BEYOND_PROMPT,
             });
         }
     }, [auth?.globalSettings]);
@@ -530,15 +531,37 @@ const UserManagementTab: React.FC = () => {
     );
 };
 
+const ToggleSwitch: React.FC<{ id: string, checked: boolean; onChange: () => void; disabled?: boolean }> = ({ id, checked, onChange, disabled }) => (
+    <label htmlFor={id} className={`relative inline-block w-14 h-8 align-middle select-none transition duration-200 ease-in ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+        <input 
+            type="checkbox" 
+            id={id}
+            checked={checked} 
+            onChange={!disabled ? onChange : undefined} 
+            className="sr-only"
+            disabled={disabled}
+        />
+        <div className={`block w-14 h-8 rounded-full ${checked ? 'bg-success' : 'bg-tertiary'}`}></div>
+        <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${checked ? 'transform translate-x-6' : ''}`}></div>
+    </label>
+);
+
 const ContentModerationTab: React.FC<{setView: (view: AppView) => void}> = ({setView}) => {
     const auth = useContext(AuthContext);
     const [filter, setFilter] = useState('');
     const [visibilityFilter, setVisibilityFilter] = useState<'all' | 'public' | 'private'>('all');
     const [charToDelete, setCharToDelete] = useState<Character | null>(null);
+    const [isModerationEnabled, setIsModerationEnabled] = useState(true);
 
     if (!auth) return null;
 
-    const { characters = [], findUserById, silenceCharacter, deleteCharacter } = auth;
+    const { characters = [], findUserById, silenceCharacter, deleteCharacter, globalSettings, updateGlobalSettings } = auth;
+
+    useEffect(() => {
+        if (globalSettings) {
+            setIsModerationEnabled(globalSettings.enableAIModeration !== false);
+        }
+    }, [globalSettings]);
 
     const filteredCharacters = useMemo(() => {
         const lowerFilter = filter.toLowerCase();
@@ -557,8 +580,31 @@ const ContentModerationTab: React.FC<{setView: (view: AppView) => void}> = ({set
         setCharToDelete(null);
     }
 
+    const handleToggleModeration = () => {
+        const newState = !isModerationEnabled;
+        setIsModerationEnabled(newState);
+        updateGlobalSettings({ ...globalSettings, enableAIModeration: newState });
+    };
+
     return (
-        <div className="space-y-4">
+        <div className="space-y-6">
+             <div className="bg-primary p-4 border border-border rounded-lg flex flex-col sm:flex-row justify-between items-center gap-4">
+                 <div>
+                     <h3 className="font-bold text-lg text-text-primary">Auto-Moderation Settings</h3>
+                     <p className="text-sm text-text-secondary">When enabled, the AI will scan all new user comments for policy violations.</p>
+                 </div>
+                 <div className="flex items-center gap-3">
+                     <span className={`font-medium ${isModerationEnabled ? 'text-success' : 'text-text-secondary'}`}>
+                         {isModerationEnabled ? 'Enabled' : 'Disabled'}
+                     </span>
+                     <ToggleSwitch 
+                        id="mod-toggle" 
+                        checked={isModerationEnabled} 
+                        onChange={handleToggleModeration} 
+                     />
+                 </div>
+             </div>
+
              <div className="flex flex-col sm:flex-row gap-4">
                 <input 
                     type="text"

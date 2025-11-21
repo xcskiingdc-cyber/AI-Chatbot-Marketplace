@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useMemo, useContext, useRef } from 'react';
 import type { User, AppView, Character, Notification, DMConversation, DirectMessage } from '../types';
 import { BellIcon, MessageIcon, SendIcon, UploadIcon, CloseIcon } from './Icons';
@@ -13,7 +14,6 @@ const ImagePreview: React.FC<{ src: string; onRemove: () => void }> = ({ src, on
     </div>
 );
 
-// FIX: Remove usage of deprecated `useIndexedDBImage` hook.
 const DMImage: React.FC<{ imageId: string }> = ({ imageId }) => {
     const imageUrl = imageId;
     if (!imageUrl) return <div className="w-48 h-32 bg-tertiary animate-pulse rounded-md mt-2" />;
@@ -26,7 +26,12 @@ const DMImage: React.FC<{ imageId: string }> = ({ imageId }) => {
 
 const MessagesTab: React.FC = () => {
     const auth = useContext(AuthContext);
-    const { currentUser, dmConversations, sendDirectMessage, markDMAsReadByUser } = auth || {};
+    // Ensure dmConversations is typed correctly
+    const dmConversations = auth?.dmConversations as Record<string, DMConversation> | undefined;
+    const currentUser = auth?.currentUser;
+    const sendDirectMessage = auth?.sendDirectMessage;
+    const markDMAsReadByUser = auth?.markDMAsReadByUser;
+    
     const [selectedConversation, setSelectedConversation] = useState<DMConversation | null>(null);
     const [messageText, setMessageText] = useState('');
     const [imageFile, setImageFile] = useState<File | null>(null);
@@ -88,8 +93,6 @@ const MessagesTab: React.FC = () => {
     };
     
     const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-        // FIX: The type of items from `e.clipboardData.items` was inferred as `unknown`.
-        // We cast the array to `any[]` to allow access to `type` and `getAsFile` properties.
         const file = (Array.from(e.clipboardData.items) as any[]).find(item => item.type.startsWith('image/'))?.getAsFile();
         if (file) {
             e.preventDefault();
@@ -366,7 +369,6 @@ const NotificationsView: React.FC<{
                 {activeTab === 'Messages' ? (
                     <MessagesTab />
                 ) : (
-                    // FIX: Removed unused `setView` prop to resolve type error.
                     <NotificationsTab 
                         user={user} 
                         onCharacterClick={onCharacterClick} 

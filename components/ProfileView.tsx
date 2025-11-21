@@ -1,5 +1,3 @@
-
-
 import React, { useContext, useState, useMemo } from 'react';
 import type { Character, AppView, User, ForumThread, ForumPost } from '../types';
 import CharacterGrid from './CharacterGrid';
@@ -10,7 +8,7 @@ import ConfirmationModal from './ConfirmationModal';
 
 const ForumActivity: React.FC<{ user: User, setView: (view: AppView) => void }> = ({ user, setView }) => {
     const auth = useContext(AuthContext);
-    const { forumThreads = [], getPostsForThread, findUserById } = auth || {};
+    const { forumThreads = [], getPostsForThread, findUserById } = auth || ({} as any);
 
     const myThreads = useMemo(() => {
         return forumThreads.filter(t => t.authorId === user.id);

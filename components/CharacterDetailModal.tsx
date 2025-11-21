@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useMemo, useRef, useEffect, useContext } from 'react';
 import type { Character, User, Comment } from '../types';
 import { CloseIcon, ThumbsUpIcon, FlagIcon, EditIcon, DeleteIcon, SaveIcon, CancelIcon } from './Icons';
@@ -218,7 +219,8 @@ const CharacterDetailModal: React.FC<CharacterDetailModalProps> = ({
         
         <div className="flex-1 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden">
             <div className="w-full md:w-1/3 p-6 flex flex-col items-center space-y-4 border-b md:border-b-0 md:border-r border-border md:overflow-y-auto">
-                <Avatar imageId={character.avatarUrl} alt={character.name} className="w-48 h-48 rounded-full object-cover ring-4 ring-accent-primary/50 flex-shrink-0" />
+                {/* Updated Avatar styling to be a rounded rectangle with 3:4 aspect ratio */}
+                <Avatar imageId={character.avatarUrl} alt={character.name} className="w-48 h-64 rounded-xl object-cover ring-2 ring-accent-primary/50 flex-shrink-0 shadow-lg" />
                 <h3 className="text-2xl font-bold text-center">{character.name}</h3>
                 {creator && (
                     <button onClick={() => onCreatorClick(creator)} className="text-center text-sm text-text-secondary hover:opacity-80">

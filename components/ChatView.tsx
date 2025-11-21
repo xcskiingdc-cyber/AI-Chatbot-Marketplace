@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useContext, useMemo } from 'react';
 import { Character, ChatMessage, ChatSettings, ApiConnection } from '../types';
-import { getChatResponseStream, getTextToSpeech, generateChatResponseWithStats } from '../services/aiService';
+import { getTextToSpeech, generateChatResponseWithStats } from '../services/aiService';
 import Message from './Message';
 import { SendIcon, SettingsIcon, SpinnerIcon } from './Icons';
 import { decode, decodeAudioData } from '../utils/audioUtils';
@@ -41,7 +41,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const auth = useContext(AuthContext);
-  const { findConnectionForModel, apiConnections, findConnectionForTool } = auth || {};
+  const { findConnectionForModel, apiConnections, findConnectionForTool } = auth || ({} as any);
 
   const userChatSettings = useMemo(() => {
     const defaultSettings: ChatSettings = {

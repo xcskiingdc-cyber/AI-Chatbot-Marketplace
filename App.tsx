@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useMemo, useContext, useEffect } from 'react';
+
+import React, { useState, useMemo, useContext, useEffect } from 'react';
 import type { Character, ChatMessage, AppView, UserProfile, User, Report, Ticket } from './types';
 import { AuthProvider, AuthContext } from './context/AuthContext';
 import Navbar from './components/Navbar';
@@ -24,15 +25,14 @@ import ThreadView from './components/ThreadView';
 import CreateThreadForm from './components/CreateThreadForm';
 import AiApiSettingsView from './components/AiApiSettingsView';
 import SystemMonitorView from './components/SystemMonitorView';
-
+import { FlameIcon } from './components/Icons';
 
 const MainApp: React.FC = () => {
   const [view, setView] = useState<AppView>({ type: 'HOME' });
-  const [isLoading, setIsLoading] = useState(true);
   const [isLoginModalOpen, setLoginModalOpen] = useState(false);
   const [isProfileEditModalOpen, setProfileEditModalOpen] = useState(false);
   const [isBeyondTheHavenModalOpen, setBeyondTheHavenModalOpen] = useState(false);
-  const [showBeyondTheHaven, setShowBeyondTheHaven] = useState(false);
+  const [contentFilter, setContentFilter] = useState<'haven' | 'beyond' | 'all'>('haven');
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
   const [selectedCreator, setSelectedCreator] = useState<User | null>(null);
   
@@ -48,30 +48,38 @@ const MainApp: React.FC = () => {
   const [modConsoleInitialTab, setModConsoleInitialTab] = useState<string>('reports');
   const [preselectedDMUser, setPreselectedDMUser] = useState<User | null>(null);
 
-  
   const auth = useContext(AuthContext);
   if (!auth) {
     throw new Error("AuthContext not found");
   }
-  const { currentUser, characters, chatHistories, saveCharacter, updateChatHistory, updateUserProfile, toggleFavorite, deleteChatHistory, likeCharacter, addComment, followUser, markNotificationsAsRead, findUserById, submitReport, submitTicket, findConnectionForModel } = auth;
   
-
-  useEffect(() => {
-    // This simulates an initial data fetch. In a real app with an API,
-    // this would be tied to the data fetching lifecycle.
-    const timer = setTimeout(() => {
-        setIsLoading(false);
-    }, 1200); 
-    return () => clearTimeout(timer);
-  }, []);
+  const { 
+    currentUser, 
+    characters, 
+    chatHistories, 
+    saveCharacter, 
+    updateChatHistory, 
+    updateUserProfile, 
+    toggleFavorite, 
+    deleteChatHistory, 
+    likeCharacter, 
+    addComment, 
+    followUser, 
+    markNotificationsAsRead, 
+    findUserById, 
+    submitReport, 
+    submitTicket, 
+    findConnectionForModel,
+    loading 
+  } = auth;
 
   useEffect(() => {
     if (selectedCharacter) {
       const updatedCharacter = characters.find(c => c.id === selectedCharacter.id);
       if (updatedCharacter) {
-        if (JSON.stringify(updatedCharacter) !== JSON.stringify(selectedCharacter)) {
+         if (JSON.stringify(updatedCharacter) !== JSON.stringify(selectedCharacter)) {
             setSelectedCharacter(updatedCharacter);
-        }
+         }
       } else {
         setSelectedCharacter(null);
       }
@@ -84,6 +92,15 @@ const MainApp: React.FC = () => {
         setModConsoleInitialTab('reports');
     }
   }, [view]);
+
+  // Redirect to Home if user logs out while on a protected page
+  useEffect(() => {
+    const protectedViews: AppView['type'][] = ['PROFILE', 'RECENT_CHATS', 'CREATE_CHARACTER', 'NOTIFICATIONS', 'ADMIN_CONSOLE', 'MODERATOR_CONSOLE', 'SUPPORT_TICKET', 'CREATE_THREAD', 'AI_API_SETTINGS', 'SYSTEM_MONITOR'];
+    // If user is not logged in, force redirect immediately
+    if (!currentUser && protectedViews.includes(view.type)) {
+        setView({ type: 'HOME' });
+    }
+  }, [currentUser, view, setView]);
 
   const handleSaveCharacter = async (characterData: Omit<Character, 'creatorId'> & { creatorId?: string }, avatarFile: File | null) => {
     if (!currentUser) {
@@ -101,7 +118,7 @@ const MainApp: React.FC = () => {
   const handleSaveProfile = async (profile: UserProfile, avatarFile: File | null) => {
     await updateUserProfile(profile, avatarFile);
     setProfileEditModalOpen(false);
-  }
+  };
 
   const navigate = (newView: AppView) => {
     const protectedViews: AppView['type'][] = ['PROFILE', 'RECENT_CHATS', 'CREATE_CHARACTER', 'NOTIFICATIONS', 'ADMIN_CONSOLE', 'MODERATOR_CONSOLE', 'SUPPORT_TICKET', 'CREATE_THREAD', 'AI_API_SETTINGS', 'SYSTEM_MONITOR'];
@@ -134,7 +151,7 @@ const MainApp: React.FC = () => {
   };
   
   const isUserAdult = useMemo(() => {
-    if (!currentUser?.profile.birthday) return false;
+    if (!currentUser?.profile?.birthday) return false;
     try {
         const birthDate = new Date(currentUser.profile.birthday);
         const today = new Date();
@@ -155,35 +172,31 @@ const MainApp: React.FC = () => {
   }, [characters, currentUser]);
   
   const favoriteCharacters = useMemo(() => {
-    if (!currentUser?.profile.favoriteCharacterIds) return [];
+    if (!currentUser?.profile?.favoriteCharacterIds) return [];
     const favIds = new Set(currentUser.profile.favoriteCharacterIds);
     return characters.filter(c => favIds.has(c.id));
   }, [characters, currentUser]);
   
   const currentCharacterForView = useMemo(() => {
       if (view.type === 'CHAT' || view.type === 'EDIT_CHARACTER') {
-          return characters.find(c => c.id === view.characterId);
+          return characters.find(c => c.id === (view as any).characterId);
       }
       return undefined;
   }, [view, characters]);
 
-    const handleBeyondTheHavenToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const isChecked = e.target.checked;
-        if (isChecked) {
+    const handleContentFilterChange = (value: 'haven' | 'beyond' | 'all') => {
+        if (value === 'beyond' || value === 'all') {
             setBeyondTheHavenModalOpen(true);
         } else {
-            setShowBeyondTheHaven(false);
+            setContentFilter('haven');
         }
     };
 
-    const confirmBeyondTheHaven = () => {
-        setShowBeyondTheHaven(true);
-        setBeyondTheHavenModalOpen(false);
+    const onFilterSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const val = e.target.value as 'haven' | 'beyond' | 'all';
+        setContentFilter(val);
     };
 
-    const cancelBeyondTheHaven = () => {
-        setBeyondTheHavenModalOpen(false);
-    };
 
     const publicCharacters = useMemo(() => {
         return characters.filter(c => c.isPublic && !c.isSilencedByAdmin);
@@ -197,7 +210,16 @@ const MainApp: React.FC = () => {
             chars = chars.filter(c => followingIds.has(c.creatorId));
         }
 
-        if (!showBeyondTheHaven || !isUserAdult) {
+        // Content Categorization Logic
+        if (isUserAdult) {
+            if (contentFilter === 'haven') {
+                chars = chars.filter(c => !c.isBeyondTheHaven);
+            } else if (contentFilter === 'beyond') {
+                 chars = chars.filter(c => c.isBeyondTheHaven);
+            }
+            // 'all' includes both
+        } else {
+            // Non-adults always forced to haven
             chars = chars.filter(c => !c.isBeyondTheHaven);
         }
 
@@ -227,7 +249,7 @@ const MainApp: React.FC = () => {
             default:
                 return chars;
         }
-    }, [publicCharacters, showBeyondTheHaven, isUserAdult, searchTerm, sortOrder, characters, searchBy, findUserById, filterByFollowing, currentUser]);
+    }, [publicCharacters, contentFilter, isUserAdult, searchTerm, sortOrder, characters, searchBy, findUserById, filterByFollowing, currentUser]);
 
     const handleTicketSubmit = (ticket: Omit<Ticket, 'id' | 'submitterId' | 'status' | 'timestamp'>) => {
         if(!currentUser) return;
@@ -236,49 +258,49 @@ const MainApp: React.FC = () => {
         setSuccessModalOpen(true);
     };
 
+  // Global Loading State
+  if (loading) {
+    return (
+        <div className="flex flex-col items-center justify-center h-screen bg-primary text-text-primary">
+             <div className="relative w-24 h-24">
+                <div className="absolute top-0 left-0 w-full h-full border-4 border-tertiary rounded-full"></div>
+                <div className="absolute top-0 left-0 w-full h-full border-4 border-accent-secondary rounded-full animate-spin border-t-transparent"></div>
+             </div>
+             <p className="mt-8 text-lg font-serif animate-pulse">Summoning the Haven...</p>
+        </div>
+    );
+  }
 
   const renderContent = () => {
+    // Safety check: If we are on a protected route but have no user, force HOME rendering immediately.
+    // This prevents a "blank" screen or crashes if a component expects `currentUser` to exist.
+    if (!currentUser && ['PROFILE', 'RECENT_CHATS', 'CREATE_CHARACTER', 'NOTIFICATIONS', 'ADMIN_CONSOLE', 'MODERATOR_CONSOLE', 'SUPPORT_TICKET', 'CREATE_THREAD', 'AI_API_SETTINGS', 'SYSTEM_MONITOR'].includes(view.type)) {
+        // Render a safe fallback while the useEffect redirects
+        return (
+            <div className="w-full h-full flex items-center justify-center text-text-secondary">
+                <p>Redirecting to Home...</p>
+            </div>
+        );
+    }
+
     switch (view.type) {
       case 'CREATE_CHARACTER':
         return <CharacterForm onSave={handleSaveCharacter} onCancel={() => setView({ type: 'HOME' })} isUserAdult={isUserAdult} />;
       case 'EDIT_CHARACTER':
         return currentCharacterForView ? (
             <CharacterForm onSave={handleSaveCharacter} onCancel={() => setView({ type: 'PROFILE' })} existingCharacter={currentCharacterForView} isUserAdult={isUserAdult} />
-        ) : <p>Character not found</p>;
+        ) : <p className="text-center p-8">Character not found</p>;
       case 'CHAT':
         if (!currentCharacterForView) {
-            setView({ type: 'HOME' });
+            setTimeout(() => setView({ type: 'HOME' }), 0);
             return null;
         }
-        
-        const connection = findConnectionForModel?.(currentCharacterForView.model);
-        const isGeminiModel = currentCharacterForView.model.includes('gemini') || currentCharacterForView.model.includes('imagen');
-
-        if (!connection) {
-            if (isGeminiModel && currentUser) {
-                // It's a Gemini model and the user is logged in but has no key (and no global fallback was found)
-                return (
-                    <div className="p-8 text-center text-yellow-300 bg-secondary m-4 sm:m-8 rounded-lg">
-                        <h2 className="text-2xl font-bold mb-4">Gemini API Key Required</h2>
-                        <p>This character uses a Gemini AI model. To continue, please add your own Gemini API Key in your profile settings.</p>
-                        <p className="text-sm text-text-secondary mt-2">Your key is stored locally in your browser and is never shared.</p>
-                        <div className="mt-6 flex flex-col sm:flex-row justify-center gap-4">
-                            <button onClick={() => setView({ type: 'HOME' })} className="px-4 py-2 bg-tertiary text-white rounded-md">Back to Home</button>
-                            <button onClick={() => setProfileEditModalOpen(true)} className="px-4 py-2 bg-accent-secondary text-white rounded-md">Add API Key</button>
-                        </div>
-                    </div>
-                );
-            }
-             // It's some other model, or a Gemini model and user is not logged in
-            return <div className="p-8 text-center text-red-400">Error: The AI model "{currentCharacterForView.model}" for this character is not available. An administrator may need to configure it in the AI API Settings.</div>;
-        }
-
         const history = (currentUser && chatHistories[currentUser.id]?.[currentCharacterForView.id]) || [];
         return <ChatView character={currentCharacterForView} chatHistory={history} updateChatHistory={updateChatHistory} onReportMessage={(msg) => setReportModalInfo({ entityType: 'message', entityId: msg.id, contentSnapshot: msg.text, entityCreatorId: currentCharacterForView.creatorId })} onCharacterSelect={setSelectedCharacter} />;
       case 'RECENT_CHATS':
         return currentUser ? <RecentChatsView characters={characters} userChatHistories={chatHistories[currentUser.id] || {}} setView={setView} deleteChatHistory={deleteChatHistory} /> : null;
       case 'PROFILE':
-        return currentUser ? <ProfileView user={currentUser} myCharacters={myCharacters} favoriteCharacters={favoriteCharacters} setView={navigate} onEditProfile={() => setProfileEditModalOpen(true)} toggleFavorite={toggleFavorite} onCharacterClick={setSelectedCharacter} isLoading={isLoading} /> : null;
+        return currentUser ? <ProfileView user={currentUser} myCharacters={myCharacters} favoriteCharacters={favoriteCharacters} setView={navigate} onEditProfile={() => setProfileEditModalOpen(true)} toggleFavorite={toggleFavorite} onCharacterClick={setSelectedCharacter} isLoading={loading} /> : null;
       case 'NOTIFICATIONS':
         return currentUser ? <NotificationsView user={currentUser} setView={setView} onCharacterClick={setSelectedCharacter} onCreatorClick={setSelectedCreator} /> : null;
       case 'ADMIN_CONSOLE':
@@ -292,11 +314,11 @@ const MainApp: React.FC = () => {
       case 'FORUM_HOME':
         return <ForumHomeView setView={navigate} />;
       case 'FORUM_CATEGORY':
-        return <CategoryView categoryId={view.categoryId} setView={navigate} />;
+        return <CategoryView categoryId={(view as any).categoryId} setView={navigate} />;
       case 'FORUM_THREAD':
-        return <ThreadView threadId={view.threadId} setView={navigate} onReportPost={(post) => setReportModalInfo({ entityType: 'forumPost', entityId: post.id, contentSnapshot: post.content, entityCreatorId: post.authorId })}/>;
+        return <ThreadView threadId={(view as any).threadId} setView={navigate} onReportPost={(post) => setReportModalInfo({ entityType: 'forumPost', entityId: post.id, contentSnapshot: post.content, entityCreatorId: post.authorId })}/>;
       case 'CREATE_THREAD':
-        return <CreateThreadForm categoryId={view.categoryId} setView={navigate} />;
+        return <CreateThreadForm categoryId={(view as any).categoryId} setView={navigate} />;
       case 'HOME':
       default:
         return (
@@ -310,16 +332,16 @@ const MainApp: React.FC = () => {
                             placeholder="Search..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full bg-secondary border border-border rounded-md py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                            className="w-full bg-secondary-glass border border-white/10 rounded-lg py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-accent-primary text-white placeholder-white/50 shadow-sm backdrop-blur-sm transition-all focus:bg-secondary/80"
                         />
                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <svg className="h-5 w-5 text-text-secondary" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
+                            <svg className="h-5 w-5 text-white/50" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1 1 10.89 3.476l4.817 4.817a1 1 0 0 1-1.414 1.414l-4.816-4.816A6 6 0 0 1 2 8z" clipRule="evenodd" /></svg>
                         </div>
                     </div>
                      <select
                         value={searchBy}
                         onChange={(e) => setSearchBy(e.target.value as 'character' | 'creator')}
-                        className="bg-secondary border border-border rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                        className="bg-secondary-glass border border-white/10 rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-accent-primary text-white shadow-sm backdrop-blur-sm"
                       >
                         <option value="character">By Character</option>
                         <option value="creator">By Creator</option>
@@ -329,29 +351,32 @@ const MainApp: React.FC = () => {
                   <select
                     value={sortOrder}
                     onChange={(e) => setSortOrder(e.target.value)}
-                    className="bg-secondary border border-border rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                    className="bg-secondary-glass border border-white/10 rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-accent-primary text-white shadow-sm backdrop-blur-sm"
                   >
                     <option value="newest">Newest</option>
                     <option value="popular">Most Popular</option>
                   </select>
+
+                  {isUserAdult && (
+                       <select
+                        value={contentFilter}
+                        onChange={onFilterSelectChange}
+                        className="bg-secondary-glass border border-white/10 rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-accent-primary text-white shadow-sm backdrop-blur-sm cursor-pointer"
+                      >
+                        <option value="haven">Haven (Safe)</option>
+                        <option value="beyond">Beyond (18+)</option>
+                        <option value="all">All Content</option>
+                      </select>
+                  )}
+
                   {currentUser && (
-                    <label htmlFor="following-toggle" className="flex items-center cursor-pointer">
+                    <label htmlFor="following-toggle" className="flex items-center cursor-pointer group">
                         <div className="relative">
                             <input type="checkbox" id="following-toggle" checked={filterByFollowing} onChange={e => setFilterByFollowing(e.target.checked)} className="sr-only" />
-                            <div className={`block w-14 h-8 rounded-full ${filterByFollowing ? 'bg-accent-secondary' : 'bg-tertiary'}`}></div>
-                            <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${filterByFollowing ? 'transform translate-x-6' : ''}`}></div>
+                            <div className={`block w-14 h-8 rounded-full border border-white/10 transition-colors ${filterByFollowing ? 'bg-accent-secondary' : 'bg-black/40'}`}></div>
+                            <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform shadow-md ${filterByFollowing ? 'transform translate-x-6' : ''}`}></div>
                         </div>
-                        <div className="ml-3 text-text-primary font-medium">Following</div>
-                    </label>
-                  )}
-                  {currentUser && isUserAdult && (
-                    <label htmlFor="beyond-the-haven-toggle" className="flex items-center cursor-pointer">
-                        <div className="relative">
-                            <input type="checkbox" id="beyond-the-haven-toggle" checked={showBeyondTheHaven} onChange={handleBeyondTheHavenToggle} className="sr-only" />
-                            <div className={`block w-14 h-8 rounded-full ${showBeyondTheHaven ? 'bg-accent-primary' : 'bg-tertiary'}`}></div>
-                            <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${showBeyondTheHaven ? 'transform translate-x-6' : ''}`}></div>
-                        </div>
-                         <div className="ml-3 text-text-primary font-medium">Beyond the Haven</div>
+                        <div className="ml-3 text-text-primary font-medium group-hover:text-white transition-colors">Following</div>
                     </label>
                   )}
                 </div>
@@ -361,7 +386,7 @@ const MainApp: React.FC = () => {
                 characters={filteredCharacters} 
                 setView={setView} 
                 onCharacterClick={setSelectedCharacter}
-                isLoading={isLoading}
+                isLoading={loading}
                 showControls={false} 
                 currentUser={currentUser} 
                 toggleFavorite={toggleFavorite} 
@@ -373,17 +398,30 @@ const MainApp: React.FC = () => {
     }
   };
   
-  const isConsoleView = view.type === 'ADMIN_CONSOLE' || view.type === 'MODERATOR_CONSOLE' || view.type === 'AI_API_SETTINGS' || view.type === 'SYSTEM_MONITOR';
+  const isConsoleView = ['ADMIN_CONSOLE', 'MODERATOR_CONSOLE', 'AI_API_SETTINGS', 'SYSTEM_MONITOR'].includes(view.type);
 
   return (
-    <div className="flex flex-col h-screen font-sans bg-primary text-text-primary">
-      <Navbar setView={navigate} />
-      <main className={`flex-1 flex flex-col overflow-y-auto ${isConsoleView ? 'w-full max-w-screen-2xl mx-auto' : ''}`}>
+    <div className="flex flex-col h-screen font-sans text-text-primary relative">
+      {/* The background is now handled by styles.css on body::before */}
+      <Navbar 
+          setView={navigate} 
+      />
+      <main className={`flex-1 flex flex-col overflow-y-auto overflow-x-hidden ${isConsoleView ? 'w-full max-w-screen-2xl mx-auto' : ''}`}>
         {renderContent()}
       </main>
       {isLoginModalOpen && <LoginModal onClose={() => setLoginModalOpen(false)} />}
       {isProfileEditModalOpen && currentUser && <ProfileEditModal userProfile={currentUser.profile} onSave={handleSaveProfile} onCancel={() => setProfileEditModalOpen(false)} />}
-      {isBeyondTheHavenModalOpen && <BeyondTheHavenConfirmationModal onConfirm={confirmBeyondTheHaven} onCancel={cancelBeyondTheHaven} />}
+      {isBeyondTheHavenModalOpen && (
+          <BeyondTheHavenConfirmationModal 
+            onConfirm={() => {
+                setBeyondTheHavenModalOpen(false);
+            }} 
+            onCancel={() => {
+                setBeyondTheHavenModalOpen(false);
+                setContentFilter('haven'); // Revert if cancelled
+            }} 
+          />
+      )}
       {reportModalInfo && currentUser && (
         <ReportModal 
             reportInfo={reportModalInfo}
@@ -455,7 +493,6 @@ const MainApp: React.FC = () => {
     </div>
   );
 }
-
 
 const App: React.FC = () => {
   return (

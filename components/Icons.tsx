@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 export const HomeIcon = (props: React.SVGProps<SVGSVGElement>) => (
@@ -188,7 +189,6 @@ export const ChatBubbleIcon = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-// FIX: Update PinIcon to accept a title prop for tooltips and fix type errors.
 export const PinIcon = (props: React.SVGProps<SVGSVGElement> & { title?: string }) => {
     const { title, ...rest } = props;
     return (
@@ -199,7 +199,6 @@ export const PinIcon = (props: React.SVGProps<SVGSVGElement> & { title?: string 
     );
 };
 
-// FIX: Update LockIcon to accept a title prop for tooltips and fix type errors.
 export const LockIcon = (props: React.SVGProps<SVGSVGElement> & { title?: string }) => {
     const { title, ...rest } = props;
     return (
@@ -236,7 +235,7 @@ export const QuestionMarkCircleIcon = (props: React.SVGProps<SVGSVGElement>) => 
 
 export const FlameIcon = (props: React.SVGProps<SVGSVGElement>) => (
     <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M17.81 2.97C16.5 2.15 15.01 2 13.53 2c-1.7 0-3.32.33-4.81.97-1.48.63-2.79 1.58-3.9 2.7C4.1 6.39 3.42 7.21 3 8.5c-.32.99-.44 2-.57 3-.13 1-.03 2.07.28 3.06.44 1.41.98 2.5 1.76 3.63 1.14 1.63 2.22 2.8 3.68 3.86 1.15.82 2.48 1.48 3.86 1.83.17.04.34.07.51.09.28.03.56.05.84.05.7 0 1.38-.1 2.05-.31.67-.21 1.32-.51 1.95-.91.95-.6 1.82-1.39 2.59-2.33.6-.74 1.13-1.57 1.57-2.45.3-.6.54-1.24.71-1.9.41-1.57.3-3.23-.33-4.76-.59-1.44-1.53-2.67-2.7-3.66-1.15-1-2.43-1.84-3.9-2.52z"/>
+        <path fillRule="evenodd" d="M12.963 2.286a.75.75 0 0 0-1.071-.136 9.742 9.742 0 0 0-3.539 6.177 7.547 7.547 0 0 1-1.705-1.717.75.75 0 0 0-1.152-.082A9 9 0 1 0 15.68 4.534a7.46 7.46 0 0 1-2.717-2.248ZM15.75 14.25a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" clipRule="evenodd" />
     </svg>
 );
 
@@ -281,6 +280,12 @@ export const SparklesIcon = (props: React.SVGProps<SVGSVGElement>) => (
 
 export const DatabaseIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg {...props} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h12A2.25 2.25 0 0120.25 6v1.5a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 7.5V6zM3.75 12A2.25 2.25 0 016 9.75h12a2.25 2.25 0 012.25 2.25v1.5a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V12zM3.75 18A2.25 2.25 0 016 15.75h12a2.25 2.25 0 012.25 2.25v1.5a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V18z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h12A2.25 2.25 0 0120.25 6v1.5a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 7.5V6zM3.75 12A2.25 2.25 0 016 9.75h12a2.25 2.25 0 012.25 2.25v1.5a2.25 2.25 0 01-2.25-2.25V12zM3.75 18A2.25 2.25 0 016 15.75h12a2.25 2.25 0 012.25 2.25v1.5a2.25 2.25 0 01-2.25-2.25V18z" />
   </svg>
+);
+
+export const CropIcon = (props: React.SVGProps<SVGSVGElement>) => (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7.875 2.25V4.5m0 0h-4.5m4.5 0h12.75a2.25 2.25 0 0 1 2.25 2.25v12.75m-2.25 2.25v-2.25m0 0h4.5m-4.5 0H3.375a2.25 2.25 0 0 1-2.25-2.25V4.5" />
+    </svg>
 );

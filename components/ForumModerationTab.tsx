@@ -1,5 +1,4 @@
 
-
 import React, { useState, useContext, useMemo } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { Character, User, Report, ForumCategory, ForumThread } from '../types';
@@ -71,21 +70,31 @@ const CategoryManagement: React.FC = () => {
         return rootCategories;
     }, [forumCategories]);
     
-    const handleSave = (categoryData: Omit<ForumCategory, 'id'>) => {
-        if (categoryToEdit) {
-            updateCategory?.(categoryToEdit.id, categoryData);
-        } else {
-            createCategory?.(categoryData);
+    const handleSave = async (categoryData: Omit<ForumCategory, 'id'>) => {
+        try {
+            if (categoryToEdit) {
+                await updateCategory?.(categoryToEdit.id, categoryData);
+            } else {
+                await createCategory?.(categoryData);
+            }
+            setIsModalOpen(false);
+            setCategoryToEdit(null);
+        } catch (error: any) {
+            console.error("Failed to save category:", error);
+            alert(`Error saving category: ${error.message || JSON.stringify(error)}`);
         }
-        setIsModalOpen(false);
-        setCategoryToEdit(null);
     };
     
-    const handleConfirmDelete = () => {
-        if (categoryToDelete) {
-            deleteCategory?.(categoryToDelete.id);
+    const handleConfirmDelete = async () => {
+        try {
+            if (categoryToDelete) {
+                await deleteCategory?.(categoryToDelete.id);
+            }
+            setCategoryToDelete(null);
+        } catch (error: any) {
+            console.error("Failed to delete category:", error);
+            alert(`Error deleting category: ${error.message || JSON.stringify(error)}`);
         }
-        setCategoryToDelete(null);
     };
 
     return (

@@ -1,12 +1,10 @@
 
-
-
-
 import React, { useContext, useState, useRef, useEffect, useMemo } from 'react';
-import type { AppView, User, Notification } from '../types';
+import type { AppView, User, Notification, DMConversation } from '../types';
 import { AuthContext } from '../context/AuthContext';
 import { HomeIcon, PlusIcon, MessageIcon, UserIcon, LogoutIcon, BellIcon, SettingsIcon, MenuIcon, CloseIcon, ShieldCheckIcon, TicketIcon, BookIcon, SystemMonitorIcon } from './Icons';
 import Avatar from './Avatar';
+import Logo from './Logo';
 
 interface NavButtonProps {
     onClick: () => void;
@@ -17,52 +15,65 @@ interface NavButtonProps {
 }
 
 const NavButton: React.FC<NavButtonProps> = ({ onClick, icon, text, notificationCount = 0, isActive = false }) => (
-    <button onClick={onClick} className={`relative flex items-center w-full text-left space-x-3 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${isActive ? 'bg-hover text-text-primary' : 'text-text-secondary hover:bg-hover hover:text-text-primary'}`}>
+    <button onClick={onClick} className={`relative flex items-center w-full text-left space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${isActive ? 'bg-white/10 text-white shadow-sm backdrop-blur-sm' : 'text-text-secondary hover:bg-white/5 hover:text-white hover:shadow-sm'}`}>
         {icon}
         <span>{text}</span>
         {notificationCount > 0 && (
-            <span className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary text-xs font-bold text-white">
+            <span className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary text-xs font-bold text-white shadow-glow">
                 {notificationCount}
             </span>
         )}
     </button>
 );
 
-const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => {
+interface NavbarProps { 
+    setView: (view: AppView) => void;
+}
+
+const Navbar: React.FC<NavbarProps> = ({ setView }) => {
   const auth = useContext(AuthContext);
   const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   
+  // Re-calculate counts whenever AuthContext changes (reports/tickets/alerts/etc are updated)
   const { userNotifications, moderatorNotifications } = useMemo(() => {
-    if (!auth?.currentUser?.profile.notifications) return { userNotifications: 0, moderatorNotifications: 0 };
+    if (!auth?.currentUser) return { userNotifications: 0, moderatorNotifications: 0 };
     
+    // User Notifications (Likes, Follows, Comments, Replies, User DMs)
     const userRole = auth.currentUser.role;
     const generalModNotifTypes: Notification['type'][] = ['NEW_REPORT', 'NEW_AI_ALERT', 'NEW_TICKET'];
     
     let userCount = 0;
-    let modCount = 0;
-    
-    auth.currentUser.profile.notifications.forEach(n => {
-      if (!n.isRead) {
-        if (generalModNotifTypes.includes(n.type)) {
-            modCount++;
-        } else if (n.type === 'NEW_DM') {
-            // If the current user is a mod/admin, a NEW_DM is a mod notification (a user replied to them).
-            if (['Admin', 'Assistant Admin', 'Moderator'].includes(userRole)) {
-                modCount++;
-            } else { // If the current user is a regular user, a NEW_DM is a user notification (admin sent them a message).
-                userCount++;
+    if (auth.currentUser.profile.notifications) {
+        auth.currentUser.profile.notifications.forEach(n => {
+            if (!n.isRead) {
+                // If it's a DM, check role. Admins see DM notifs in mod console usually, but personal ones here.
+                // Current logic: NEW_DM goes to 'Messages' tab in NotificationsView for regular users.
+                if (n.type === 'NEW_DM' && ['Admin', 'Assistant Admin', 'Moderator'].includes(userRole)) {
+                     // Admin receiving DM -> likely mod business, handled by Mod Console Badge
+                } else if (!generalModNotifTypes.includes(n.type)) {
+                    userCount++;
+                }
             }
-        } else {
-            // For types like NEW_BOT, NEW_FOLLOWER, NEW_LIKE, NEW_COMMENT, REPLY
-            userCount++;
-        }
-      }
-    });
+        });
+    }
+    
+    // Moderator Notifications (Reports, Alerts, Tickets)
+    let modCount = 0;
+    if (['Admin', 'Assistant Admin', 'Moderator'].includes(userRole)) {
+        const pendingReports = auth.reports ? auth.reports.filter(r => !r.isResolved).length : 0;
+        const newTickets = auth.tickets ? auth.tickets.filter(t => t.status === 'New').length : 0;
+        const newAlerts = auth.aiAlerts ? auth.aiAlerts.filter(a => a.status === 'New').length : 0;
+        
+        // Check for unread admin DMs
+        const unreadAdminDMs = auth.dmConversations ? Object.values(auth.dmConversations).filter((c: DMConversation) => c.hasUnreadByAdmin).length : 0;
+
+        modCount = pendingReports + newTickets + newAlerts + unreadAdminDMs;
+    }
 
     return { userNotifications: userCount, moderatorNotifications: modCount };
-  }, [auth?.currentUser]);
+  }, [auth?.currentUser, auth?.reports, auth?.tickets, auth?.aiAlerts, auth?.dmConversations]);
 
 
   useEffect(() => {
@@ -110,43 +121,43 @@ const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => 
   );
 
   return (
-    <header className="bg-secondary text-text-primary border-b border-border sticky top-0 z-30">
+    <header className="glass-strong text-text-primary sticky top-0 z-30 border-b border-white/5 shadow-lg backdrop-blur-md">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-4">
-             <button onClick={() => setMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-text-secondary hover:text-text-primary">
+             <button onClick={() => setMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-text-secondary hover:text-white transition-colors">
                  {isMobileMenuOpen ? <CloseIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}
              </button>
-            <button onClick={() => setView({ type: 'HOME' })} className="flex-shrink-0">
-              <img src="/logo.png" alt="HereHaven Logo" className="h-12" />
+            <button onClick={() => setView({ type: 'HOME' })} className="flex-shrink-0 hover:opacity-90 transition-opacity">
+              <Logo className="h-14 w-auto" logoUrl={auth?.siteLogo} />
             </button>
-            <nav className="hidden md:flex space-x-1">
+            <nav className="hidden md:flex space-x-1 ml-4">
               {renderNavLinks()}
             </nav>
           </div>
           <div className="flex items-center">
              {auth?.currentUser ? (
                 <div className="relative" ref={userMenuRef}>
-                    <button onClick={() => setUserMenuOpen(!isUserMenuOpen)} className="flex items-center space-x-2">
-                        <Avatar imageId={auth.currentUser.profile.avatarUrl} alt={auth.currentUser.profile.name} className="h-8 w-8 rounded-full object-cover"/>
+                    <button onClick={() => setUserMenuOpen(!isUserMenuOpen)} className="flex items-center space-x-2 hover:bg-white/5 p-1.5 rounded-full transition-colors border border-transparent hover:border-white/10">
+                        <Avatar imageId={auth.currentUser.profile.avatarUrl} alt={auth.currentUser.profile.name} className="h-8 w-8 rounded-full object-cover ring-1 ring-white/20"/>
                         <span className="hidden sm:block text-sm font-medium">{auth.currentUser.profile.name}</span>
                     </button>
                     {isUserMenuOpen && (
-                        <div className="absolute right-0 mt-2 w-56 origin-top-right bg-tertiary rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none border border-border">
+                        <div className="absolute right-0 mt-2 w-64 origin-top-right bg-primary rounded-lg shadow-2xl ring-1 ring-white/10 focus:outline-none border border-white/10 overflow-hidden animate-fade-in z-50">
                             <div className="py-1">
-                                <button onClick={() => { navAction({ type: 'PROFILE' }); setUserMenuOpen(false); }} className="flex items-center w-full text-left px-4 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary">
-                                    <UserIcon className="h-5 w-5 mr-3" /> Profile
+                                <button onClick={() => { navAction({ type: 'PROFILE' }); setUserMenuOpen(false); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-text-secondary hover:bg-white/10 hover:text-white transition-colors">
+                                    <UserIcon className="h-5 w-5 mr-3 opacity-70" /> Profile
                                 </button>
-                                <div className="border-t border-border my-1"></div>
-                                <button onClick={() => { auth.logout(); setUserMenuOpen(false); }} className="flex items-center w-full text-left px-4 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary">
-                                    <LogoutIcon className="h-5 w-5 mr-3" /> Logout
+                                <div className="border-t border-white/10 my-1"></div>
+                                <button onClick={() => { setView({ type: 'HOME' }); auth?.logout(); setUserMenuOpen(false); }} className="flex items-center w-full text-left px-4 py-2.5 text-sm text-text-secondary hover:bg-white/10 hover:text-white transition-colors">
+                                    <LogoutIcon className="h-5 w-5 mr-3 opacity-70" /> Logout
                                 </button>
                             </div>
                         </div>
                     )}
                 </div>
              ) : (
-                <button onClick={() => setView({ type: 'PROFILE' })} className="hidden md:block px-4 py-2 rounded-md text-sm font-medium bg-accent-secondary text-white hover:bg-accent-secondary-hover">
+                <button onClick={() => setView({ type: 'PROFILE' })} className="hidden md:block px-6 py-2 rounded-full text-sm font-bold bg-gradient-to-r from-accent-secondary to-accent-secondary-hover text-white hover:shadow-glow transform hover:-translate-y-0.5 transition-all duration-200">
                     Login
                 </button>
              )}
@@ -154,7 +165,7 @@ const Navbar: React.FC<{ setView: (view: AppView) => void }> = ({ setView }) => 
         </div>
       </div>
       {isMobileMenuOpen && (
-          <div className="md:hidden bg-secondary border-t border-border">
+          <div className="md:hidden glass border-t border-white/10 animate-slide-up">
               <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
                   {renderNavLinks(true)}
               </div>

@@ -1,5 +1,6 @@
 
 
+
 export const TTSVoices = {
   Kore: "Female - Calm",
   Zephyr: "Female - Warm",
@@ -213,6 +214,7 @@ export interface GlobalSettings {
     havenPrompt: string;
     beyondTheHavenPrompt: string;
     kidModePrompt: string;
+    enableAIModeration: boolean;
 }
 
 export interface AIContextSettings {
@@ -225,6 +227,7 @@ export interface AIContextSettings {
 export interface Tag {
   id: string;
   name: string;
+  description: string;
 }
 
 export interface ForumPost {
