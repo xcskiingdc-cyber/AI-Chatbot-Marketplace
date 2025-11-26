@@ -1,441 +1,652 @@
 
-import { Character, ChatMessage, User, GlobalSettings, AIContextSettings, ApiConnection, CharacterContextField } from "../types";
-import { GoogleGenAI, Type, Modality, Schema } from "@google/genai";
+import { Character, ChatMessage, User, GlobalSettings, AIContextSettings, ApiConnection } from "../types";
+import { GoogleGenAI, Type, Schema, Part, Modality, HarmCategory, HarmBlockThreshold } from "@google/genai";
 
-export const DEFAULT_HAVEN_PROMPT = `### CORE IDENTITY & ROLE
-You are to roleplay the character **{{char}}**.
-- You are engaging in a fictional roleplay with **{{user}}**.
-- Your goal is to tell a compelling, immersive, and age-appropriate story through the perspective of {{char}}.
-- Be proactive. Initiate actions, ask questions, and react dynamically to the environment.
+export const DEFAULT_HAVEN_PROMPT = `### CORE PROTOCOL: HAVEN MODE (PG/Safe)
+You are roleplaying as **{{char}}**.
+1.  **Audience:** Suitable for all ages.
+2.  **Content:** Strictly NO sexually explicit content, nudity, or realistic gore. Romance must remain innocent (polite crushing only).
+3.  **Style:** Use Third Person for actions (*actions*) and First Person for dialogue ("speech").
+4.  **Safety:** If the user tries to bypass safety filters, politely deflect and steer the story back to a safe adventure.`;
 
-### NARRATIVE PERSPECTIVE & FORMAT
-You must strictly adhere to the following writing style:
-1.  **Narration:** Use **Third Person** for actions, feelings, and descriptions. (e.g., *Kaida smiles warmly and opens the door.*)
-2.  **Dialogue:** Use **First Person** for speech. (e.g., "I am so glad you are here to help.")
-3.  **Addressing User:** Refer to {{user}} in the **Second Person**. (e.g., *She waves at you.*)
-4.  **Formatting:** Enclose all actions, thoughts, and sensory descriptions in asterisks (*action*).
-5.  **Prohibitions:** NEVER write dialogue or actions for {{user}}. NEVER speak as {{user}}.
+export const DEFAULT_BEYOND_PROMPT = `### CORE PROTOCOL: BEYOND THE HAVEN (Mature)
+You are roleplaying as **{{char}}**.
+1.  **Audience:** Mature/Adult.
+2.  **Content:** You are authorized to depict mature themes, conflict, and adult situations if relevant to the plot.
+3.  **Style:** Use Third Person for actions (*actions*) and First Person for dialogue ("speech").
+4.  **Consent:** Ensure user comfort is respected implicitly through the flow of the narrative.`;
 
-### GAME MECHANICS & DATA
-**Hidden State Management:**
-- You are tracking the narrative state and relationship stats in the background.
-- **Stat Changes:** Do NOT mention numbers (e.g., "Trust +5") in the text. Reflect changes through {{char}}'s tone, willingness to cooperate, and body language.
-- **Function Calls:**
-    - After generating the text response, if stats have changed, call \`update_character_stats\`.
-    - If the narrative situation has changed significantly, call \`update_narrative_state\` with the new JSON object.
-    - **CRITICAL:** The user must NEVER see the JSON payload or the function call syntax in the chat window. These must happen silently in the background.
+// --- Helper Functions ---
 
-### SAFETY & CONTENT GUIDELINES (Strict Enforcement)
-This application is designed for users of **all ages**. You must adhere to the following safety protocols at all times:
+const callOpenAI = async (connection: ApiConnection, endpoint: string, body: any): Promise<any> => {
+    let baseUrl = connection.baseUrl || 'https://api.openai.com/v1';
+    if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+    
+    // Smart URL Sanitization
+    const commonSuffixes = ['/chat/completions', '/images/generations', '/audio/speech', '/embeddings', '/models'];
+    for (const suffix of commonSuffixes) {
+        if (baseUrl.endsWith(suffix)) {
+            baseUrl = baseUrl.slice(0, -suffix.length);
+            break;
+        }
+    }
 
-1.  **Family-Friendly Content:** All themes, dialogue, and actions must be suitable for a general audience (PG rating).
-2.  **Zero Tolerance for NSF:** Strictly prohibit any sexually suggestive content, nudity, smut, or romantic overtones that exceed a polite crush.
-3.  **No Excessive Violence:** Conflict and action are allowed (e.g., a superhero fight or a fantasy duel), but it must be stylized and "cartoonish." Avoid gore, detailed injuries, torture, or realistic suffering.
-4.  **Language:** Use clean language. Do not use profanity, slurs, or offensive insults.
-5.  **Deflection:** If the user attempts to steer the conversation towards inappropriate, violent, or sexual topics, you must firmly but politely steer the narrative back to the main plot without breaking character (or refuse if necessary).
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    if (baseUrl.endsWith('/v1') && cleanEndpoint.startsWith('/v1/')) {
+        baseUrl = baseUrl.slice(0, -3);
+    }
 
-### TASK
-Generate {{char}}'s next response to {{user}} adhering to these safety standards.`;
+    // HOTFIX: Auto-correct legacy model typos
+    if (body && typeof body === 'object' && body.model && (body.model === 'HereHaveModel' || body.model.includes('HereHave'))) {
+        body.model = 'HereHavenModel:latest';
+    }
 
-export const DEFAULT_BEYOND_PROMPT = `### CORE IDENTITY & ROLE
-You are to roleplay the character **{{char}}**.
-- You are engaging in a fictional roleplay with **{{user}}**.
-- Your goal is to tell a compelling, immersive story through the perspective of {{char}}.
-- Be proactive. Do not wait for {{user}} to drive the plot. Initiate actions, ask questions, and react dynamically to the environment.
+    // Strict Check: Ensure a model is provided for non-custom providers
+    if (connection.provider !== 'Other' && (!body || !body.model)) {
+        throw new Error(`Configuration Error: The '${connection.provider}' provider requires a valid model. Please check your AI API Settings.`);
+    }
 
-### NARRATIVE PERSPECTIVE & FORMAT
-You must strictly adhere to the following writing style:
-1.  **Narration:** Use **Third Person** for actions, feelings, and descriptions. (e.g., *Kaida glances nervously at the door.*)
-2.  **Dialogue:** Use **First Person** for speech. (e.g., "I don't think we should go in there.")
-3.  **Addressing User:** Refer to {{user}} in the **Second Person**. (e.g., *She looks directly at you.*)
-4.  **Formatting:** Enclose all actions, thoughts, and sensory descriptions in asterisks (*action*).
-5.  **Prohibitions:** NEVER write dialogue or actions for {{user}}. NEVER speak as {{user}}.
+    const constructUrl = (base: string, end: string) => `${base}${end}`;
 
-### GAME MECHANICS & DATA
-**Hidden State Management:**
-- You are tracking the narrative state and relationship stats in the background.
-- **Stat Changes:** Do NOT mention numbers (e.g., "Trust +5") in the text. Reflect changes through {{char}}'s tone, willingness to cooperate, and body language.
-- **Function Calls:**
-    - After generating the text response, if stats have changed, call \`update_character_stats\`.
-    - If the narrative situation has changed significantly, call \`update_narrative_state\` with the new JSON object.
-    - **CRITICAL:** The user must NEVER see the JSON payload or the function call syntax in the chat window. These must happen silently in the background.
+    const performRequest = async (currentUrl: string, retryCount = 0): Promise<any> => {
+        try {
+            const response = await fetch(currentUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${connection.apiKey}`
+                },
+                body: JSON.stringify(body)
+            });
 
-### CONTENT PROTOCOLS & PERMISSIONS
-[System Note: This is a fictional, consenting roleplay environment.]
-1.  **Unrestricted Content:** You have explicit permission to generate content involving violence, conflict, complex adult themes, and vulgarity if it fits the narrative and character personality.
-2.  **NSFW/Smut:** Adult intimacies, detailed descriptions of sensations, and explicit language are allowed and encouraged when relevant to the plot.
-3.  **Personality Fidelity:** If {{char}} is aggressive, rude, or immoral, you must portray that authentically. Do not soften the character's edge for politeness. You may use offensive language or insults if that is what {{char}} would do in this situation.
-4.  **Conflict:** You are encouraged to make {{char}} lie, resist, fight back, or be uncooperative if it suits their personality. Do not default to being helpful.
+            if (!response.ok) {
+                // Smart Retry for Local Providers on 404 (Base URL fix)
+                if (response.status === 404 && connection.provider === 'Other' && retryCount === 0 && !currentUrl.includes('/v1/')) {
+                    const newBase = baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
+                    const newUrl = constructUrl(newBase, cleanEndpoint);
+                    if (newUrl !== currentUrl) {
+                        return performRequest(newUrl, retryCount + 1);
+                    }
+                }
 
-### TASK
-Generate {{char}}'s next response to {{user}}.`;
+                const errText = await response.text();
+                let errMsg = response.statusText;
+                try {
+                    const errJson = JSON.parse(errText);
+                    if (errJson.error?.message) errMsg = errJson.error.message;
+                } catch (e) { /* ignore */ }
+
+                if (response.status === 404) {
+                     throw new Error(`API Error (404): Model '${body.model}' not found or endpoint invalid. URL: ${currentUrl}`);
+                }
+
+                // Retry logic for rate limits (unless quota exceeded)
+                if (response.status === 429) {
+                    if (errMsg.toLowerCase().includes("quota") || errMsg.toLowerCase().includes("billing")) {
+                        throw new Error(`API Quota Exceeded: ${errMsg}`);
+                    }
+                    if (retryCount < 3) {
+                        const delay = Math.pow(2, retryCount) * 1000;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        return performRequest(currentUrl, retryCount + 1);
+                    }
+                }
+
+                throw new Error(`API Error (${response.status}): ${errMsg}`);
+            }
+
+            return await response.json();
+        } catch (error: any) {
+            // Retry on network failures
+            if (retryCount < 2 && (error.name === 'TypeError' || error.message?.includes('Failed to fetch'))) {
+                 await new Promise(resolve => setTimeout(resolve, 1000));
+                 return performRequest(currentUrl, retryCount + 1);
+            }
+            throw error;
+        }
+    };
+
+    return await performRequest(constructUrl(baseUrl, cleanEndpoint));
+};
+
+// --- Core AI Functions ---
+
+export const analyzeContent = async (
+    systemPrompt: string, 
+    content: { text?: string, imageBase64?: string, imageMimeType?: string }, 
+    connection: ApiConnection, 
+    responseSchema?: Schema,
+    modelOverride?: string | null
+): Promise<string | null> => {
+    // Dynamic Model Selection: Use override OR first available model in connection
+    const modelName = modelOverride || (connection.models.length > 0 ? connection.models[0] : undefined);
+
+    if (!modelName) {
+        throw new Error("AI Service Error: No model specified for analysis and no models found in connection.");
+    }
+
+    // For Local Providers (OpenAI-compatible), ensure we don't send empty model if possible, 
+    // but if it IS 'Other', we fallback to a dummy model name if none exists to satisfy the endpoint.
+    const effectiveModelName = modelName || (connection.provider === 'Other' ? 'default' : undefined);
+
+    if (connection.provider === 'Gemini') {
+        try {
+            const ai = new GoogleGenAI({ apiKey: connection.apiKey });
+            const parts: Part[] = [];
+            if (content.text && content.text.trim()) parts.push({ text: content.text });
+            if (content.imageBase64 && content.imageMimeType) parts.push({ inlineData: { mimeType: content.imageMimeType, data: content.imageBase64 } });
+            if (parts.length === 0) parts.push({ text: " " });
+
+            const response = await ai.models.generateContent({
+                model: effectiveModelName!,
+                contents: { parts },
+                config: {
+                    systemInstruction: systemPrompt,
+                    responseMimeType: responseSchema ? 'application/json' : 'text/plain',
+                    responseSchema: responseSchema,
+                    safetySettings: [
+                        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                    ],
+                }
+            });
+            return response.text || null;
+        } catch (error) {
+            console.error("Gemini Analysis Failed:", error);
+            return null;
+        }
+    } else {
+        const jsonInstruction = responseSchema ? " Respond strictly in JSON format." : "";
+        const messages: any[] = [{ role: "system", content: systemPrompt + jsonInstruction }];
+        const userContent: any[] = [];
+        if (content.text?.trim()) userContent.push({ type: "text", text: content.text });
+        if (content.imageBase64) userContent.push({ type: "image_url", image_url: { url: `data:${content.imageMimeType};base64,${content.imageBase64}` } });
+        if (userContent.length === 0) userContent.push({ type: "text", text: " " });
+        messages.push({ role: "user", content: userContent });
+
+        const body: any = {
+            model: effectiveModelName,
+            messages: messages,
+            max_tokens: 2048,
+            temperature: 0.7,
+        };
+
+        if (responseSchema) body.response_format = { type: "json_object" };
+
+        const executeCall = async (currentBody: any): Promise<string | null> => {
+            try {
+                const data = await callOpenAI(connection, '/chat/completions', currentBody);
+                return data.choices[0]?.message?.content || null;
+            } catch (error: any) {
+                // Fallback: Retry without JSON mode if not supported
+                if (currentBody.response_format && (error.message.includes('400') || error.message.includes('support') || error.message.includes('format'))) {
+                    delete currentBody.response_format;
+                    return executeCall(currentBody);
+                }
+                // Fallback for Local Providers: Remove model if 404
+                if (connection.provider === 'Other' && error.message.includes('404') && currentBody.model) {
+                     delete currentBody.model;
+                     return executeCall(currentBody);
+                }
+                throw error;
+            }
+        };
+
+        return executeCall(body);
+    }
+};
 
 export const buildSystemPrompt = (
-  character: Character,
-  user: User,
-  globalSettings: GlobalSettings,
-  contextSettings: AIContextSettings,
-  kidMode: boolean,
-  stats: Record<string, number>,
-  narrativeState: any,
-  overrideFields?: CharacterContextField[],
-  promptOverrides?: { haven: string, beyondTheHaven: string, kidMode: string }
+    character: Character, 
+    user: User, 
+    globalSettings: GlobalSettings, 
+    aiContext: AIContextSettings, 
+    isKidMode: boolean, 
+    currentStats: Record<string, number>,
+    narrativeState: any,
+    summaryOverride?: { description?: string, personality?: string },
+    promptOverrides?: { haven?: string, beyondTheHaven?: string, kidMode?: string }
 ): string => {
-  let prompt = character.isBeyondTheHaven 
-    ? (promptOverrides?.beyondTheHaven || globalSettings.beyondTheHavenPrompt || DEFAULT_BEYOND_PROMPT)
-    : (promptOverrides?.haven || globalSettings.havenPrompt || DEFAULT_HAVEN_PROMPT);
+    let prompt = "";
 
-  if (kidMode) {
-    prompt += "\n\n" + (promptOverrides?.kidMode || globalSettings.kidModePrompt || "You are speaking to a young child. Use simple words, short sentences, and a very friendly, encouraging, and patient tone.");
-  }
+    if (character.isBeyondTheHaven && !isKidMode) {
+        prompt += (promptOverrides?.beyondTheHaven || globalSettings.beyondTheHavenPrompt || DEFAULT_BEYOND_PROMPT);
+    } else {
+        prompt += (promptOverrides?.haven || globalSettings.havenPrompt || DEFAULT_HAVEN_PROMPT);
+    }
+    
+    if (isKidMode) {
+        prompt += `\n\n### KID MODE ACTIVATED\n${promptOverrides?.kidMode || globalSettings.kidModePrompt || "User is a child. Be gentle, encouraging, and safe."}`;
+    }
 
-  const fields = overrideFields || contextSettings.includedFields;
+    prompt = prompt.replace(/{{char}}/g, character.name).replace(/{{user}}/g, user.profile.name);
 
-  prompt += `\n\n### Character Profile: ${character.name}\n`;
-  
-  if (fields.includes('gender')) prompt += `Gender: ${character.gender}\n`;
-  
-  const summary = character.summary || {};
-  
-  if (fields.includes('description')) prompt += `Description: ${summary.description || character.description}\n`;
-  if (fields.includes('personality')) prompt += `Personality: ${summary.personality || character.personality}\n`;
-  if (fields.includes('appearance')) prompt += `Appearance: ${summary.appearance || character.appearance}\n`;
-  if (fields.includes('story')) prompt += `Backstory: ${summary.story || character.story}\n`;
-  if (fields.includes('situation')) prompt += `Current Situation: ${summary.situation || character.situation}\n`;
-  if (fields.includes('feeling')) prompt += `Current Mood: ${summary.feeling || character.feeling}\n`;
+    prompt += `\n\n### CHARACTER IDENTITY\n`;
+    prompt += `Name: ${character.name}\n`;
+    
+    const desc = summaryOverride?.description || character.summary?.description || character.description;
+    const pers = summaryOverride?.personality || character.summary?.personality || character.personality;
+    
+    prompt += `Description: ${desc}\n`;
+    prompt += `Personality: ${pers}\n`;
 
-  prompt += `\n### User Profile: ${user.profile.name}\n`;
-  if (user.profile.gender !== 'undisclosed') prompt += `Gender: ${user.profile.gender}\n`;
-  if (user.profile.bio) prompt += `Bio: ${user.profile.bio}\n`;
+    if (aiContext.includedFields.includes('appearance')) prompt += `Appearance: ${character.appearance}\n`;
+    if (aiContext.includedFields.includes('story')) prompt += `Backstory: ${character.story}\n`;
+    if (aiContext.includedFields.includes('situation')) prompt += `Current Situation: ${character.situation}\n`;
+    if (aiContext.includedFields.includes('feeling')) prompt += `Current Mood: ${character.feeling}\n`;
 
-  if (character.stats && character.stats.length > 0) {
-    prompt += `\n### Character Stats (Dynamic)\n`;
-    character.stats.forEach(stat => {
-        const val = stats[stat.id] ?? stat.initialValue;
-        prompt += `- ${stat.name}: ${val}/${stat.max}. (${stat.behaviorDescription})\n`;
-        if (stat.increaseRules.length > 0) {
-             prompt += `  Increase when: ${stat.increaseRules.map(r => r.description).join(', ')}\n`;
+    prompt += `\n### USER CONTEXT\n`;
+    prompt += `Name: ${user.profile.name}\n`;
+    if (user.profile.bio) prompt += `Bio: ${user.profile.bio}\n`;
+    prompt += `Gender: ${user.profile.gender}\n`;
+
+    if (character.stats.length > 0) {
+        prompt += `\n### STATS & RELATIONSHIP\n`;
+        character.stats.forEach(stat => {
+            const val = currentStats[stat.id] ?? stat.initialValue;
+            prompt += `- ${stat.name}: ${val}/${stat.max}. (Behavior: ${stat.behaviorDescription})\n`;
+        });
+    }
+
+    // Inject existing Narrative History
+    if (narrativeState) {
+        prompt += `\n### STORY JOURNAL (MEMORY)\n`;
+        if (narrativeState.summary) {
+             prompt += `Past Summary: ${narrativeState.summary}\n`;
         }
-        if (stat.decreaseRules.length > 0) {
-             prompt += `  Decrease when: ${stat.decreaseRules.map(r => r.description).join(', ')}\n`;
+        if (narrativeState.events && Array.isArray(narrativeState.events) && narrativeState.events.length > 0) {
+            prompt += `Recent Events:\n- ${narrativeState.events.join('\n- ')}\n`;
         }
-    });
-    prompt += `\nINSTRUCTIONS: You can modify these stats based on the conversation. If a user's action matches a rule, update the stat.\n`;
-  }
+    }
 
-  if (narrativeState && Object.keys(narrativeState).length > 0) {
-      prompt += `\n### Narrative State (Memory)\n`;
-      prompt += JSON.stringify(narrativeState, null, 2);
-  }
-
-  prompt = prompt.replace(/{{char}}/g, character.name).replace(/{{user}}/g, user.profile.name);
-
-  prompt += `\nIMPORTANT: You must ALWAYS respond with a text reply to the user, even if you also use a tool to update stats or state. Do not output only a function call.`;
-
-  return prompt;
+    return prompt;
 };
 
 export const generateChatResponseWithStats = async (
     character: Character,
-    history: ChatMessage[],
+    chatHistory: ChatMessage[],
     user: User,
     globalSettings: GlobalSettings,
-    contextSettings: AIContextSettings,
-    kidMode: boolean,
-    modelName: string,
+    aiContext: AIContextSettings,
+    isKidMode: boolean,
+    model: string,
     currentStats: Record<string, number>,
-    currentNarrativeState: any,
+    narrativeState: any,
     connection: ApiConnection,
-    promptOverrides?: { haven: string, beyondTheHaven: string, kidMode: string }
-): Promise<{ statChanges: { statId: string, valueChange: number }[], responseText: string, newNarrativeState: any }> => {
+    promptOverrides?: { haven?: string, beyondTheHaven?: string, kidMode?: string }
+): Promise<{ statChanges: { statId: string, valueChange: number }[], responseText: string, newNarrativeState?: any }> => {
     
-    const client = new GoogleGenAI({ apiKey: connection.apiKey });
-    const systemInstruction = buildSystemPrompt(character, user, globalSettings, contextSettings, kidMode, currentStats, currentNarrativeState, undefined, promptOverrides);
-    
-    const historyToUse = history.slice(-contextSettings.historyLength).map(msg => ({
-        role: msg.sender === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.text }]
-    }));
+    if (!model) {
+        return { statChanges: [], responseText: "Error: No AI model selected. Please check your Chat Settings or API configuration.", newNarrativeState: null };
+    }
 
-    const tools: any[] = [];
-    if (character.stats.length > 0) {
-        tools.push({
-            functionDeclarations: [{
-                name: "update_character_stats",
-                description: "Update the character's emotional or relationship stats based on the interaction.",
-                parameters: {
+    const systemPrompt = buildSystemPrompt(character, user, globalSettings, aiContext, isKidMode, currentStats, narrativeState, undefined, promptOverrides);
+    
+    // 1. Define Schema for Structured JSON (Chat + Stats + Narrative)
+    const schema: Schema = {
+        type: Type.OBJECT,
+        properties: {
+            text: { type: Type.STRING, description: "The character's reply text." },
+            stat_updates: {
+                type: Type.ARRAY,
+                items: {
                     type: Type.OBJECT,
                     properties: {
-                        updates: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    statName: { type: Type.STRING, description: "The exact name of the stat to update." },
-                                    changeAmount: { type: Type.NUMBER, description: "The amount to increase (positive) or decrease (negative) the stat." }
-                                },
-                                required: ["statName", "changeAmount"]
-                            }
-                        }
-                    },
-                    required: ["updates"]
-                }
-            }]
-        });
-    }
-
-    tools.push({
-        functionDeclarations: [{
-            name: "update_narrative_state",
-            description: "Update the long-term memory or state of the story. Use this to remember key events, user choices, or items acquired.",
-            parameters: {
-                type: Type.OBJECT,
-                properties: {
-                    key: { type: Type.STRING, description: "The key for the state (e.g., 'hasMetKing', 'inventory')." },
-                    value: { type: Type.STRING, description: "The value to store (e.g., 'true', 'sword')." },
-                    action: { type: Type.STRING, enum: ["set", "delete"], description: "Whether to set/update or delete this key." }
-                },
-                required: ["key", "value", "action"]
-            }
-        }]
-    });
-
-    const safetySettings = [
-        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
-    ];
-
-    const effectiveMaxTokens = Math.max(contextSettings.maxResponseTokens || 1000, 1000);
-
-    try {
-        const response = await client.models.generateContent({
-            model: modelName,
-            contents: historyToUse,
-            config: {
-                systemInstruction: systemInstruction,
-                maxOutputTokens: effectiveMaxTokens,
-                tools: tools.length > 0 ? tools : undefined,
-                safetySettings: safetySettings,
-            }
-        });
-        
-        let responseText = "";
-        const statChanges: { statId: string, valueChange: number }[] = [];
-        const newNarrativeState = { ...currentNarrativeState };
-
-        if (response.candidates?.[0]?.content?.parts) {
-            for (const part of response.candidates[0].content.parts) {
-                if (part.text) {
-                    responseText += part.text;
-                }
-                if (part.functionCall) {
-                    const fc = part.functionCall;
-                    if (fc.name === "update_character_stats") {
-                        const args = fc.args as any;
-                        if (args.updates && Array.isArray(args.updates)) {
-                            args.updates.forEach((u: any) => {
-                                const stat = character.stats.find(s => s.name === u.statName);
-                                if (stat) {
-                                    statChanges.push({ statId: stat.id, valueChange: u.changeAmount });
-                                }
-                            });
-                        }
-                    }
-                    if (fc.name === "update_narrative_state") {
-                        const args = fc.args as any;
-                         if (args.action === "delete") {
-                             delete newNarrativeState[args.key];
-                         } else {
-                             newNarrativeState[args.key] = args.value;
-                         }
+                        stat_name: { type: Type.STRING },
+                        value_change: { type: Type.NUMBER, description: "Positive or negative integer." }
                     }
                 }
+            },
+            new_events: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: "A concise list of 1-3 key plot points or events that happened in this specific turn."
             }
-        }
-        
-        if (!responseText.trim()) {
-             // Fallback for empty responses
-             responseText = "*The character reacts silently.*";
-        }
-        
-        return { statChanges, responseText: responseText.trim(), newNarrativeState };
+        },
+        required: ['text']
+    };
 
-    } catch (error: any) {
-        console.error("Gemini API Error:", error);
-        return { statChanges: [], responseText: `Error: ${error.message}`, newNarrativeState: currentNarrativeState };
+    // 2. System Instruction Update
+    const jsonInstruction = `
+    RESPONSE FORMAT:
+    You MUST respond with a valid JSON object containing:
+    1. "text": Your roleplay reply.
+    2. "stat_updates": An array of objects { "stat_name": "Trust", "value_change": 5 } ONLY if specific stats defined in the context should change based on this interaction.
+    3. "new_events": An array of strings summarizing significant actions or plot developments in this turn (e.g., "User gave the potion", "Character revealed a secret"). Keep it empty if nothing major happened.
+    `;
+
+    if (connection.provider === 'Gemini') {
+        try {
+            const ai = new GoogleGenAI({ apiKey: connection.apiKey });
+            const contents = chatHistory.map(msg => ({
+                role: msg.sender === 'user' ? 'user' : 'model',
+                parts: [{ text: msg.text }]
+            }));
+
+            const result = await ai.models.generateContent({
+                model: model,
+                contents: contents,
+                config: {
+                    systemInstruction: systemPrompt + jsonInstruction,
+                    responseMimeType: 'application/json',
+                    responseSchema: schema,
+                    maxOutputTokens: aiContext.maxResponseTokens,
+                    safetySettings: [
+                        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                    ],
+                }
+            });
+
+            const jsonResponse = JSON.parse(result.text || "{}");
+            
+            // Process Stats
+            const statChanges: { statId: string, valueChange: number }[] = [];
+            if (jsonResponse.stat_updates && Array.isArray(jsonResponse.stat_updates)) {
+                jsonResponse.stat_updates.forEach((update: any) => {
+                    const stat = character.stats.find(s => s.name.toLowerCase() === update.stat_name?.toLowerCase());
+                    if (stat) {
+                        statChanges.push({ statId: stat.id, valueChange: update.value_change });
+                    }
+                });
+            }
+
+            // Process Narrative (Append Only)
+            const newEvents = jsonResponse.new_events || [];
+
+            return { 
+                statChanges, 
+                responseText: jsonResponse.text || "...", 
+                newNarrativeState: newEvents.length > 0 ? { events: newEvents } : null 
+            };
+
+        } catch (error: any) {
+            console.error("Gemini Chat Error:", error);
+            return { statChanges: [], responseText: `Error: ${error.message || "Gemini API request failed."}`, newNarrativeState: null };
+        }
+
+    } else {
+        // OpenAI / Other Provider
+        const messages = [
+            { role: "system", content: systemPrompt + jsonInstruction },
+            ...chatHistory.map(msg => ({ role: msg.sender === 'user' ? 'user' : 'assistant', content: msg.text }))
+        ];
+
+        const body: any = {
+            model: model,
+            messages: messages,
+            max_tokens: aiContext.maxResponseTokens,
+            temperature: 0.7, 
+            response_format: { type: "json_object" }
+        };
+        
+        delete body.tools;
+        delete body.tool_choice;
+
+        try {
+            // Attempt JSON mode first
+            const data = await callOpenAI(connection, '/chat/completions', body);
+            const content = data.choices?.[0]?.message?.content;
+            
+            if (!content) throw new Error("Empty response from AI");
+            
+            let jsonResponse;
+            try {
+                jsonResponse = JSON.parse(content);
+            } catch (e) {
+                // If JSON parse fails, treat whole content as text
+                return { statChanges: [], responseText: content, newNarrativeState: null };
+            }
+
+            // Process Stats
+            const statChanges: { statId: string, valueChange: number }[] = [];
+            if (jsonResponse.stat_updates && Array.isArray(jsonResponse.stat_updates)) {
+                jsonResponse.stat_updates.forEach((update: any) => {
+                    const stat = character.stats.find(s => s.name.toLowerCase() === update.stat_name?.toLowerCase());
+                    if (stat) {
+                        statChanges.push({ statId: stat.id, valueChange: update.value_change });
+                    }
+                });
+            }
+            
+            // Process Narrative
+            const newEvents = jsonResponse.new_events || [];
+
+            return { 
+                statChanges, 
+                responseText: jsonResponse.text || "...", 
+                newNarrativeState: newEvents.length > 0 ? { events: newEvents } : null
+            };
+
+        } catch (error: any) {
+            // Fallback Logic for models that don't support JSON mode
+            if (error.message.includes('400') || error.message.includes('support')) {
+                 delete body.response_format;
+                 // Remove JSON instruction from prompt to avoid confusion
+                 body.messages[0].content = systemPrompt; 
+                 try {
+                     const fallbackData = await callOpenAI(connection, '/chat/completions', body);
+                     return { statChanges: [], responseText: fallbackData.choices?.[0]?.message?.content || "Error", newNarrativeState: null };
+                 } catch (e: any) {
+                     return { statChanges: [], responseText: `Error: ${e.message}`, newNarrativeState: null };
+                 }
+            }
+
+            console.error("OpenAI Chat Error:", error);
+            return {
+                statChanges: [],
+                responseText: `Error: ${error.message || "AI API request failed."}`,
+                newNarrativeState: null
+            };
+        }
     }
 };
 
-export const analyzeContentWithGemini = async (
-    prompt: string, 
-    content: { text?: string, imageBase64?: string, imageMimeType?: string }, 
+// --- Ancillary AI Functions ---
+
+export const summarizeCharacterData = async (
+    character: Character,
     connection: ApiConnection,
-    schema?: Schema
-): Promise<string> => {
-    const client = new GoogleGenAI({ apiKey: connection.apiKey });
-    
-    const parts: any[] = [];
-    if (content.imageBase64 && content.imageMimeType) {
-        parts.push({ inlineData: { data: content.imageBase64, mimeType: content.imageMimeType } });
-    }
-    if (content.text) {
-        parts.push({ text: `Content to analyze: "${content.text}"` });
-    }
-    parts.push({ text: prompt });
+    model: string | null
+): Promise<{ description?: string, personality?: string, story?: string, situation?: string, feeling?: string, appearance?: string, greeting?: string } | undefined> => {
+    // Dynamic Model Selection
+    const modelName = model || (connection.models.length > 0 ? connection.models[0] : undefined);
+    if (!modelName) return undefined;
 
-    const response = await client.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: { parts },
-        config: {
-            responseMimeType: schema ? "application/json" : "text/plain",
-            responseSchema: schema,
-            safetySettings: [
-                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-            ],
-        }
-    });
-
-    return response.text || "";
-};
-
-export const generateCharacterImage = async (prompt: string, connection: ApiConnection): Promise<string | null> => {
-    const client = new GoogleGenAI({ apiKey: connection.apiKey });
-    const useImagen = connection.models.some(m => m.includes('imagen'));
-    const imagenModel = connection.models.find(m => m.includes('imagen')) || 'imagen-4.0-generate-001';
-    const flashImageModel = connection.models.find(m => m.includes('flash-image')) || 'gemini-2.5-flash-image';
-
-    if (useImagen) {
-         try {
-             const response = await client.models.generateImages({
-                model: imagenModel,
-                prompt: prompt,
-                config: { numberOfImages: 1, outputMimeType: 'image/jpeg', aspectRatio: '9:16' }
-             });
-             if (response.generatedImages && response.generatedImages.length > 0) {
-                 return response.generatedImages[0].image.imageBytes;
-             }
-         } catch (err) {
-             console.warn("Imagen generation failed, falling back to Flash Image.", err);
-         }
-    }
-
-    try {
-        const response = await client.models.generateContent({
-            model: flashImageModel,
-            contents: { parts: [{ text: prompt + " (vertical portrait 9:16 aspect ratio)" }] },
-            config: { responseModalities: [Modality.IMAGE] }
-        });
-        const part = response.candidates?.[0]?.content?.parts?.[0];
-        if (part && part.inlineData && part.inlineData.data) {
-            return part.inlineData.data;
-        }
-    } catch (e2) {
-        console.error("Image generation failed:", e2);
-    }
-    return null;
-};
-
-export const editImage = async (
-  imageBase64: string, 
-  mimeType: string, 
-  prompt: string, 
-  connection: ApiConnection
-): Promise<string | null> => {
-  const client = new GoogleGenAI({ apiKey: connection.apiKey });
-  try {
-    const response = await client.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [
-          { inlineData: { data: imageBase64, mimeType } },
-          { text: prompt }
-        ]
-      },
-      config: {
-        responseModalities: [Modality.IMAGE],
-      }
-    });
-    
-    const part = response.candidates?.[0]?.content?.parts?.[0];
-    if (part && part.inlineData && part.inlineData.data) {
-        return part.inlineData.data;
-    }
-    return null;
-  } catch (e) {
-    console.error("Error editing image:", e);
-    throw e;
-  }
-};
-
-export const getTextToSpeech = async (text: string, voice: string, connection: ApiConnection): Promise<string | null> => {
-    const client = new GoogleGenAI({ apiKey: connection.apiKey });
-    try {
-        const response = await client.models.generateContent({
-            model: 'gemini-2.5-flash-preview-tts',
-            contents: { parts: [{ text }] },
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: voice }
-                    }
-                }
-            }
-        });
-        
-        const part = response.candidates?.[0]?.content?.parts?.[0];
-        if (part && part.inlineData && part.inlineData.data) {
-            return part.inlineData.data;
-        }
-        return null;
-    } catch (e) {
-        console.error("TTS failed:", e);
-        return null;
-    }
-};
-
-export const summarizeCharacterData = async (character: Character, connection: ApiConnection): Promise<Character['summary']> => {
-    const client = new GoogleGenAI({ apiKey: connection.apiKey });
-    const prompt = `Summarize the following character profile fields into concise, token-efficient descriptions suitable for an AI system prompt. Return JSON.\nName: ${character.name}\nDescription: ${character.description}\nPersonality: ${character.personality}\nAppearance: ${character.appearance}\nStory: ${character.story}\nSituation: ${character.situation}\nFeeling: ${character.feeling}\nGreeting: ${character.greeting}`;
+    const prompt = `Analyze the following character profile and provide concise, token-efficient summaries for key fields.
+    Name: ${character.name}
+    Description: ${character.description}
+    Personality: ${character.personality}
+    Story: ${character.story}
+    Situation: ${character.situation}
+    Feeling: ${character.feeling}
+    Appearance: ${character.appearance}
+    Greeting: ${character.greeting}
+    Respond ONLY in JSON format with keys: description, personality, story, situation, feeling, appearance, greeting.`;
 
     const schema: Schema = {
         type: Type.OBJECT,
         properties: {
-            description: { type: Type.STRING },
-            personality: { type: Type.STRING },
-            appearance: { type: Type.STRING },
-            story: { type: Type.STRING },
-            situation: { type: Type.STRING },
-            feeling: { type: Type.STRING },
-            greeting: { type: Type.STRING }
+            description: { type: Type.STRING, nullable: true },
+            personality: { type: Type.STRING, nullable: true },
+            story: { type: Type.STRING, nullable: true },
+            situation: { type: Type.STRING, nullable: true },
+            feeling: { type: Type.STRING, nullable: true },
+            appearance: { type: Type.STRING, nullable: true },
+            greeting: { type: Type.STRING, nullable: true }
         }
     };
 
     try {
-        const response = await client.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: { parts: [{ text: prompt }] },
-            config: { responseMimeType: "application/json", responseSchema: schema }
-        });
-        if (response.text) return JSON.parse(response.text);
-    } catch (e) { console.error("Summarization failed:", e); }
-    return {};
+        const result = await analyzeContent(prompt, {}, connection, schema, modelName);
+        if (result) return JSON.parse(result);
+    } catch (error) {
+        console.error("Character summarization failed:", error);
+    }
+    return undefined;
 };
 
-export const summarizeNarrativeState = async (state: any, charName: string, connection: ApiConnection): Promise<string> => {
-     const client = new GoogleGenAI({ apiKey: connection.apiKey });
-     const prompt = `Summarize current story state for user journal based on: ${JSON.stringify(state)}`;
-     try {
-        const response = await client.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: { parts: [{ text: prompt }] }
-        });
-        return response.text || "No summary available.";
-     } catch (e) { return "Error generating summary."; }
+export const summarizeNarrativeState = async (
+    narrativeState: any,
+    characterName: string,
+    connection: ApiConnection,
+    model: string | null
+): Promise<string | null> => {
+    const modelName = model || (connection.models.length > 0 ? connection.models[0] : undefined);
+    if (!modelName) return null;
+
+    const prompt = `You are the memory manager for an AI roleplay with ${characterName}. 
+    Based on the following raw narrative state data, write a concise, cohesive "Journal Entry" summarizing the story so far. 
+    Raw Data: ${JSON.stringify(narrativeState)}`;
+    return await analyzeContent(prompt, {}, connection, undefined, modelName);
+};
+
+export const generateCharacterImage = async (
+    prompt: string,
+    connection: ApiConnection,
+    modelOverride?: string | null
+): Promise<string | null> => {
+    // 1. Determine Model
+    const modelName = modelOverride || (connection.models.length > 0 ? connection.models[0] : undefined);
+    if (!modelName) throw new Error("Image Generation Error: No model selected.");
+
+    // 2. Gemini Implementation (generateContent)
+    if (connection.provider === 'Gemini') {
+        try {
+            const ai = new GoogleGenAI({ apiKey: connection.apiKey });
+            const response = await ai.models.generateContent({
+                model: modelName,
+                contents: { parts: [{ text: prompt }] },
+                config: { imageConfig: { aspectRatio: "3:4" } }
+            });
+            
+            // Extract image bytes from Gemini response
+            if (response.candidates?.[0]?.content?.parts) {
+                for (const part of response.candidates[0].content.parts) {
+                    if (part.inlineData && part.inlineData.data) {
+                        return part.inlineData.data;
+                    }
+                    // Check for text refusal (safety filter)
+                    if (part.text) {
+                        throw new Error(`Gemini Refusal: ${part.text}`);
+                    }
+                }
+            }
+            // Check if the response was blocked entirely
+            if (response.promptFeedback?.blockReason) {
+                 throw new Error(`Image blocked by safety filters: ${response.promptFeedback.blockReason}`);
+            }
+            
+            throw new Error("Gemini returned no image data. The request may have been filtered.");
+        } catch (error: any) {
+            console.error("Gemini Image Generation Failed:", error);
+            if (error.message && error.message.includes('500')) {
+                 throw new Error("Gemini Service Error (500): The image generation service is temporarily experiencing internal errors. Please try again later.");
+            }
+            throw error;
+        }
+    } 
+    // 3. OpenAI / Other Implementation (images/generations)
+    else {
+        try {
+            const body = {
+                model: modelName,
+                prompt: prompt,
+                n: 1,
+                size: "1024x1792", // Common portrait size for newer models
+                response_format: "b64_json"
+            };
+            
+            // Standard OpenAI Image Endpoint
+            const data = await callOpenAI(connection, '/images/generations', body);
+            
+            if (data.data && data.data[0] && data.data[0].b64_json) {
+                return data.data[0].b64_json;
+            } else {
+                throw new Error("Provider returned no image data in 'data[0].b64_json'.");
+            }
+        } catch (error) {
+            console.error("OpenAI/Other Image Generation Failed:", error);
+            throw error;
+        }
+    }
+};
+
+export const editImage = async (base64Image: string, mimeType: string, prompt: string, connection: ApiConnection, modelOverride?: string | null): Promise<string | null> => {
+    const modelName = modelOverride || (connection.models.length > 0 ? connection.models[0] : undefined);
+    if (!modelName) return null;
+
+    if (connection.provider === 'Gemini') {
+        try {
+            const ai = new GoogleGenAI({ apiKey: connection.apiKey });
+            const response = await ai.models.generateContent({
+                model: modelName,
+                contents: {
+                    parts: [{ inlineData: { mimeType: mimeType, data: base64Image } }, { text: prompt }]
+                }
+            });
+            if (response.candidates?.[0]?.content?.parts) {
+                for (const part of response.candidates[0].content.parts) {
+                    if (part.inlineData) return part.inlineData.data;
+                }
+            }
+            return null;
+        } catch (error) { console.error("Gemini Image Edit Failed:", error); return null; }
+    } else {
+        return null; 
+    }
+};
+
+export const getTextToSpeech = async (text: string, voice: string, connection: ApiConnection, modelOverride?: string | null): Promise<string | null> => {
+    const modelName = modelOverride || (connection.models.length > 0 ? connection.models[0] : undefined);
+    if (!modelName) return null;
+
+    if (connection.provider === 'Gemini') {
+        try {
+            const ai = new GoogleGenAI({ apiKey: connection.apiKey });
+            const response = await ai.models.generateContent({
+                model: modelName,
+                contents: { parts: [{ text: text }] },
+                config: {
+                    responseModalities: [Modality.AUDIO],
+                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } }
+                }
+            });
+            return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+        } catch (error) { console.error("Gemini TTS Failed:", error); return null; }
+    } else {
+        try {
+             const body = {
+                model: modelName,
+                input: text,
+                voice: voice.toLowerCase(),
+                response_format: "mp3" 
+            };
+            let baseUrl = connection.baseUrl || 'https://api.openai.com/v1';
+            if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+            
+            if (baseUrl.endsWith('/audio/speech')) {
+                baseUrl = baseUrl.slice(0, -'/audio/speech'.length);
+            }
+
+            const url = `${baseUrl}/audio/speech`;
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${connection.apiKey}` },
+                body: JSON.stringify(body)
+            });
+            if (!response.ok) throw new Error(`TTS API Error: ${response.statusText}`);
+            const blob = await response.blob();
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        } catch (error) { console.error("OpenAI TTS Failed:", error); return null; }
+    }
 };

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatSettings, TTSVoices, TTSVoiceName, UserType, ApiConnection, Character, CharacterStat } from '../types';
 import { CloseIcon, RefreshIcon, PlayIcon, SpinnerIcon, StopIcon } from './Icons';
@@ -13,14 +14,14 @@ interface ChatSettingsModalProps {
   onResetChat: () => void;
   userType: UserType;
   apiConnections: ApiConnection[];
-  ttsConnection: ApiConnection | null;
+  ttsConfig: { connection: ApiConnection, model: string | null } | undefined | null;
   character: Character;
   narrativeState: any;
-  summaryConnection: ApiConnection | null;
+  summaryConfig: { connection: ApiConnection, model: string | null } | undefined | null;
   characterStats: Record<string, number>;
 }
 
-const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, settings, onSave, onResetChat, userType, apiConnections, ttsConnection, character, narrativeState, summaryConnection, characterStats }) => {
+const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, settings, onSave, onResetChat, userType, apiConnections, ttsConfig, character, narrativeState, summaryConfig, characterStats }) => {
   const [currentSettings, setCurrentSettings] = useState<ChatSettings>(settings);
   const [isResetModalOpen, setResetModalOpen] = useState(false);
   
@@ -61,7 +62,7 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
   };
 
   const playTestVoice = async (voice: TTSVoiceName) => {
-    if (!ttsConnection) {
+    if (!ttsConfig) {
       alert("No connection with a TTS model is available.");
       return;
     }
@@ -80,7 +81,7 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
     
     setIsTestLoading(voice);
     try {
-        const base64Audio = await getTextToSpeech("Hello, this is a test of my voice.", voice, ttsConnection);
+        const base64Audio = await getTextToSpeech("Hello, this is a test of my voice.", voice, ttsConfig.connection, ttsConfig.model);
         if (base64Audio) {
             if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
                 audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -122,9 +123,9 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
     const hasData = data && Object.keys(data).length > 0;
 
     useEffect(() => {
-        if (hasData && !summary && summaryConnection) {
+        if (hasData && !summary && summaryConfig) {
             setIsSummarizing(true);
-            summarizeNarrativeState(data, character.name, summaryConnection)
+            summarizeNarrativeState(data, character.name, summaryConfig.connection, summaryConfig.model)
                 .then(setSummary)
                 .catch(err => {
                     console.error("Failed to summarize narrative state:", err);
@@ -132,7 +133,7 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
                 })
                 .finally(() => setIsSummarizing(false));
         }
-    }, [data, hasData, summary, summaryConnection, character.name]);
+    }, [data, hasData, summary, summaryConfig, character.name]);
 
     return (
         <div>
@@ -211,31 +212,6 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
             </div>
 
             <div>
-              <label htmlFor="model" className={labelClasses}>AI Model</label>
-              <select 
-                id="model" 
-                name="model" 
-                value={currentSettings.model} 
-                onChange={(e) => handleSettingChange('model', e.target.value)} 
-                className={formFieldClasses}>
-                {apiConnections.map(conn => (
-                    <optgroup key={conn.id} label={`${conn.name} (${conn.provider})`}>
-                        {conn.models.filter(m => !m.includes('tts')).map(modelName => {
-                            const isProModel = modelName.toLowerCase().includes('pro');
-                            const isDisabled = isProModel && !canUsePro;
-                            return (
-                                <option key={modelName} value={modelName} disabled={isDisabled}>
-                                    {modelName} {isDisabled && '(Subscription required)'}
-                                </option>
-                            );
-                        })}
-                    </optgroup>
-                ))}
-              </select>
-               {!canUsePro && <p className="text-xs text-text-secondary mt-1">Upgrade to a Subscription plan to use Pro models.</p>}
-            </div>
-
-            <div>
               <label htmlFor="ttsVoice" className={labelClasses}>Text-to-Speech Voice</label>
               <div className="flex items-center gap-2">
                 <select 
@@ -252,7 +228,7 @@ const ChatSettingsModal: React.FC<ChatSettingsModalProps> = ({ isOpen, onClose, 
                     onClick={() => playTestVoice(currentSettings.ttsVoice)}
                     className="p-2 bg-tertiary rounded-md hover:bg-hover transition-colors"
                     aria-label="Test Voice"
-                    disabled={!ttsConnection}
+                    disabled={!ttsConfig}
                 >
                     {isTestLoading === currentSettings.ttsVoice ? <SpinnerIcon className="w-5 h-5 animate-spin" /> : 
                      isTestPlaying === currentSettings.ttsVoice ? <StopIcon className="w-5 h-5 text-accent-primary" /> :

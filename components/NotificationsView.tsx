@@ -1,4 +1,5 @@
 
+
 import React, { useEffect, useState, useMemo, useContext, useRef } from 'react';
 import type { User, AppView, Character, Notification, DMConversation, DirectMessage } from '../types';
 import { BellIcon, MessageIcon, SendIcon, UploadIcon, CloseIcon } from './Icons';
@@ -339,11 +340,25 @@ const NotificationsView: React.FC<{
         <div className="p-4 sm:p-6 md:p-8 max-w-4xl mx-auto">
             <div className="flex justify-between items-center mb-6">
                 <h1 className="text-3xl font-bold text-text-primary">Notifications</h1>
-                {hasUnread && activeTab !== 'Messages' && (
-                    <button onClick={() => auth?.markNotificationsAsRead()} className="text-sm font-medium text-accent-primary hover:underline">
-                        Mark all as read
-                    </button>
-                )}
+                <div className="flex items-center gap-4">
+                    {hasUnread && activeTab !== 'Messages' && (
+                        <button onClick={() => auth?.markNotificationsAsRead()} className="text-sm font-medium text-accent-primary hover:underline">
+                            Mark all as read
+                        </button>
+                    )}
+                    {user.profile.notifications && user.profile.notifications.length > 0 && activeTab !== 'Messages' && (
+                        <button 
+                            onClick={() => {
+                                if (window.confirm("Are you sure you want to delete all notifications?")) {
+                                    auth?.clearAllNotifications();
+                                }
+                            }}
+                            className="text-sm font-medium text-text-secondary hover:text-danger hover:underline"
+                        >
+                            Clear all
+                        </button>
+                    )}
+                </div>
             </div>
             
             <div className="mb-6 border-b border-border">

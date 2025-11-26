@@ -22,7 +22,7 @@ const categories = ["Fantasy", "Sci-Fi", "Romance", "Horror", "Adventure", "Myst
 
 const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existingCharacter, isUserAdult = false }) => {
   const auth = useContext(AuthContext);
-  const { apiConnections = [], findConnectionForModel, findConnectionForTool } = auth || ({} as any);
+  const { apiConnections = [], findConnectionForModel, getToolConfig } = auth || ({} as any);
 
   const getDefaultModel = () => {
     const geminiFlashModel = apiConnections
@@ -105,7 +105,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
    useEffect(() => {
     if (isCropperOpen && cropperImageRef.current && imageToCrop) {
       const cropper = new Cropper(cropperImageRef.current, {
-        aspectRatio: 9 / 16,
+        aspectRatio: 3 / 4,
         viewMode: 1,
         dragMode: 'move',
         background: false,
@@ -169,8 +169,12 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
     if (cropperInstanceRef.current) {
       cropperInstanceRef.current.getCroppedCanvas().toBlob((blob: Blob) => {
         if (blob) {
-          const file = new File([blob], 'avatar.png', { type: 'image/png' });
+          // Generate a unique name to ensure upload uniqueness and prevent caching issues
+          const fileName = `avatar-${Date.now()}.png`;
+          const file = new File([blob], fileName, { type: 'image/png' });
+          
           setSelectedFile(file);
+          
           if (previewUrl && previewUrl.startsWith('blob:')) {
             URL.revokeObjectURL(previewUrl);
           }
@@ -215,15 +219,14 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
     }
 
     // Generate Summary if possible
-    if (findConnectionForTool) {
-        const summaryConnection = findConnectionForTool('characterSummarization');
-        if (summaryConnection) {
+    if (getToolConfig) {
+        const summaryConfig = getToolConfig('characterSummarization');
+        if (summaryConfig) {
             try {
-                const summary = await summarizeCharacterData(finalCharacterData, summaryConnection);
+                const summary = await summarizeCharacterData(finalCharacterData, summaryConfig.connection, summaryConfig.model);
                 finalCharacterData.summary = summary;
             } catch (summaryError) {
                 console.warn("Character summarization failed, saving without new summary:", summaryError);
-                // Proceed with saving even if summarization fails, keeping existing summary if any
             }
         }
     }
@@ -239,10 +242,9 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
         } else if (err instanceof Error) {
             errorMessage = err.message;
         } else if (typeof err === 'object' && err !== null) {
-            // Try to stringify object errors to see details (e.g. PostgrestError)
             try {
                 errorMessage = JSON.stringify(err, null, 2);
-                if (err.message) errorMessage = err.message; // Prefer message if available
+                if (err.message) errorMessage = err.message;
                 if (err.error_description) errorMessage = err.error_description;
             } catch (e) {
                 errorMessage = "An object error occurred but could not be stringified.";
@@ -260,7 +262,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
   };
   
   const constructImagePrompt = (): string => {
-    let prompt = `Generate a vertical portrait (9:16 aspect ratio) of a fictional character. The style should be dramatic and evocative, suitable for a story. Do not include any text, watermarks, or signatures in the image.\n\n`;
+    let prompt = `Generate a vertical portrait (3:4 aspect ratio) of a fictional character. The style should be dramatic and evocative, suitable for a story. Do not include any text, watermarks, or signatures in the image.\n\n`;
     
     prompt += `**Character Name:** ${character.name || 'Unnamed'}\n`;
     prompt += `**Gender:** ${character.gender || 'unspecified'}\n`;
@@ -294,9 +296,9 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
   };
 
   const handleGenerateImage = async () => {
-    const imageConnection = findConnectionForTool ? findConnectionForTool('imageGeneration') : null;
+    const imageConfig = getToolConfig ? getToolConfig('imageGeneration') : null;
 
-    if (!imageConnection) {
+    if (!imageConfig) {
         setGenerationError("Image Generation tool is not configured. Please ask an administrator to set it up in the AI API Settings.");
         return;
     }
@@ -306,7 +308,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
     setGenerationError(null);
     try {
         const prompt = constructImagePrompt();
-        const imageBase64 = await generateCharacterImage(prompt, imageConnection); 
+        const imageBase64 = await generateCharacterImage(prompt, imageConfig.connection, imageConfig.model); 
         if (imageBase64) {
             setGeneratedImage(imageBase64);
         } else {
@@ -441,7 +443,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
             <div className="md:col-span-1">
                 <label className={labelClasses}>Avatar</label>
                 <div className="mt-2 flex flex-col items-center gap-4">
-                    <img src={previewUrl || DEFAULT_CHARACTER_AVATAR} alt="Avatar Preview" className="w-48 h-[267px] rounded-lg object-cover bg-tertiary"/>
+                    <img src={previewUrl || DEFAULT_CHARACTER_AVATAR} alt="Avatar Preview" className="w-48 aspect-[3/4] rounded-lg object-cover bg-tertiary"/>
                     <div className="flex items-center gap-2 flex-wrap justify-center">
                         <label htmlFor="avatar-upload" className="cursor-pointer bg-tertiary hover:bg-hover text-text-primary font-bold py-2 px-4 rounded-md inline-flex items-center gap-2 text-sm">
                             <UploadIcon className="w-4 h-4" />
@@ -606,18 +608,6 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
         </details>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label htmlFor="model" className={labelClasses}>AI Model</label>
-              <select id="model" name="model" value={character.model} onChange={handleChange} className={formFieldClasses}>
-                {apiConnections.map((conn: any) => (
-                  <optgroup key={conn.id} label={`${conn.name} (${conn.provider})`}>
-                    {conn.models.filter((m: string) => !m.includes('tts')).map((modelName: string) => (
-                      <option key={modelName} value={modelName}>{modelName}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </div>
             {isUserAdult && (
               <div className="flex items-center justify-center pt-6">
                 <label htmlFor="isBeyondTheHaven" className="flex items-center cursor-pointer">
@@ -705,7 +695,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
             <button
                 type="button"
                 onClick={handleGenerateImage}
-                disabled={isGeneratingImage || !character.appearance.trim() || !findConnectionForTool || !findConnectionForTool('imageGeneration')}
+                disabled={isGeneratingImage || !character.appearance.trim() || !getToolConfig || !getToolConfig('imageGeneration')}
                 className="w-full px-4 py-2 bg-accent-secondary hover:bg-accent-secondary-hover text-white rounded-md transition-colors font-semibold disabled:bg-hover disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
                 {isGeneratingImage ? (
@@ -717,7 +707,7 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
                     'Generate Character Image'
                 )}
             </button>
-            {(!findConnectionForTool || !findConnectionForTool('imageGeneration')) && (
+            {(!getToolConfig || !getToolConfig('imageGeneration')) && (
                 <p className="text-xs text-yellow-400 text-center mt-2">Image generation is disabled. No connection is configured for this tool in AI API Settings.</p>
             )}
             

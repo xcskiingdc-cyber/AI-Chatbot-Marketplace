@@ -1,5 +1,5 @@
 
-import { analyzeContentWithGemini } from './aiService';
+import { analyzeContent } from './aiService';
 import { ApiConnection } from '../types';
 import { Schema, Type } from '@google/genai';
 
@@ -38,9 +38,9 @@ export interface ModerationResult {
     explanation?: string;
 }
 
-export const scanText = async (text: string, connection: ApiConnection): Promise<ModerationResult | null> => {
+export const scanText = async (text: string, connection: ApiConnection, modelOverride?: string | null): Promise<ModerationResult | null> => {
     try {
-        const resultText = await analyzeContentWithGemini(TEXT_MODERATION_PROMPT, { text }, connection, textModSchema);
+        const resultText = await analyzeContent(TEXT_MODERATION_PROMPT, { text }, connection, textModSchema, modelOverride);
         if (!resultText) return null;
         return JSON.parse(resultText) as ModerationResult;
     } catch (error) {
@@ -49,9 +49,9 @@ export const scanText = async (text: string, connection: ApiConnection): Promise
     }
 };
 
-export const scanImage = async (base64Image: string, mimeType: string, connection: ApiConnection): Promise<ModerationResult | null> => {
+export const scanImage = async (base64Image: string, mimeType: string, connection: ApiConnection, modelOverride?: string | null): Promise<ModerationResult | null> => {
     try {
-        const resultText = await analyzeContentWithGemini(IMAGE_MODERATION_PROMPT, { imageBase64: base64Image, imageMimeType: mimeType }, connection, imageModSchema);
+        const resultText = await analyzeContent(IMAGE_MODERATION_PROMPT, { imageBase64: base64Image, imageMimeType: mimeType }, connection, imageModSchema, modelOverride);
         if (!resultText) return null;
         return JSON.parse(resultText) as ModerationResult;
     } catch (error) {

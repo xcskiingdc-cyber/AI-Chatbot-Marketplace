@@ -1,10 +1,11 @@
 
-
 import React, { useState, useContext } from 'react';
 import type { ForumPost, User, Character } from '../types';
 import { AuthContext } from '../context/AuthContext';
 import { ThumbsUpIcon, ThumbsDownIcon, FlagIcon, EditIcon, DeleteIcon, SaveIcon, CancelIcon } from './Icons';
 import Avatar from './Avatar';
+import ConfirmationModal from './ConfirmationModal';
+
 // A simple markdown parser, in a real app you'd use a more robust library like 'marked' or 'react-markdown'
 const SimpleMarkdown: React.FC<{ text: string }> = ({ text }) => {
     const formattedText = text
@@ -29,6 +30,7 @@ const Post: React.FC<PostProps> = ({ post, isOP = false, onVote, onReport, onDel
 
     const [isEditing, setIsEditing] = useState(false);
     const [editContent, setEditContent] = useState(post.content);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
     const author: User | Character | null = post.isCharacterPost 
         ? characters.find(c => c.id === post.authorId) || null
@@ -67,7 +69,7 @@ const Post: React.FC<PostProps> = ({ post, isOP = false, onVote, onReport, onDel
             {/* Post Content Panel */}
             <div className="flex-1">
                 <div className="flex justify-between items-center text-xs text-text-secondary mb-4">
-                    <span>{new Date(post.createdAt).toLocaleString()}</span>
+                    <span>{new Date(post.createdAt).toLocaleTimeString()} {new Date(post.createdAt).toLocaleDateString()}</span>
                     <div className="flex items-center gap-2">
                         {post.isEdited && <span>(Edited)</span>}
                         {post.isSilenced && <span className="font-bold text-yellow-400 bg-yellow-900/50 px-2 py-0.5 rounded-full">Silenced</span>}
@@ -116,7 +118,7 @@ const Post: React.FC<PostProps> = ({ post, isOP = false, onVote, onReport, onDel
                             <>
                                 <button onClick={() => setIsEditing(true)} className="hover:underline">Edit</button>
                                 <span>&middot;</span>
-                                <button onClick={() => onDelete(post.id)} className="hover:underline text-danger">Delete</button>
+                                <button onClick={() => setShowDeleteConfirm(true)} className="hover:underline text-danger">Delete</button>
                                 <span>&middot;</span>
                             </>
                         )}
@@ -130,6 +132,15 @@ const Post: React.FC<PostProps> = ({ post, isOP = false, onVote, onReport, onDel
                     </div>
                 </div>
             </div>
+            {showDeleteConfirm && (
+                <ConfirmationModal
+                    title="Delete Post?"
+                    message="Are you sure you want to delete this post? This action cannot be undone."
+                    confirmText="Delete"
+                    onConfirm={() => { onDelete(post.id); setShowDeleteConfirm(false); }}
+                    onCancel={() => setShowDeleteConfirm(false)}
+                />
+            )}
         </div>
     );
 };

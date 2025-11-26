@@ -1,3 +1,4 @@
+
 import React, { useContext, useState, useMemo } from 'react';
 import type { Character, AppView, User, ForumThread, ForumPost } from '../types';
 import CharacterGrid from './CharacterGrid';
@@ -125,7 +126,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, myCharacters, favoriteC
   ];
 
   return (
-    <div className="bg-primary min-h-full">
+    <div className="bg-primary/95 min-h-full">
         <div className="p-4 sm:p-8 bg-secondary border-b border-border">
             <div className="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-6 max-w-7xl mx-auto relative">
                 <Avatar 
@@ -202,7 +203,19 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, myCharacters, favoriteC
                             </select>
                         </div>
                     </div>
-                    <CharacterGrid characters={filteredMyCharacters} setView={setView} onCharacterClick={onCharacterClick} isLoading={isLoading} showControls={true} currentUser={auth?.currentUser} toggleFavorite={toggleFavorite} onDelete={handleDeleteRequest} findUserById={auth?.findUserById} onCreatorClick={() => {}}/>
+                    <CharacterGrid 
+                        characters={filteredMyCharacters} 
+                        setView={setView} 
+                        onCharacterClick={onCharacterClick} 
+                        isLoading={isLoading} 
+                        showControls={true} 
+                        currentUser={auth?.currentUser} 
+                        toggleFavorite={toggleFavorite} 
+                        onDelete={handleDeleteRequest} 
+                        findUserById={auth?.findUserById} 
+                        onCreatorClick={() => {}}
+                        variant="profile" 
+                    />
                   </div>
                 )}
                 

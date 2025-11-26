@@ -5,7 +5,7 @@ import { User, Character, Report, Ticket, AIAlert, DMConversation, DirectMessage
 import ConfirmationModal from './ConfirmationModal';
 import ProfileEditModal from './ProfileEditModal';
 import Avatar from './Avatar';
-import { SendIcon, TicketIcon, PlusIcon, UploadIcon, CloseIcon, ThumbsUpIcon, ThumbsDownIcon } from './Icons';
+import { SendIcon, TicketIcon, PlusIcon, UploadIcon, CloseIcon, ThumbsUpIcon, ThumbsDownIcon, DeleteIcon } from './Icons';
 import ForumModerationTab from './ForumModerationTab';
 
 interface DmUserContext {
@@ -43,17 +43,7 @@ const ModeratorConsoleView: React.FC<ModeratorConsoleViewProps> = ({ setSelected
     
     const handleTabClick = (tabId: string) => {
         setActiveTab(tabId);
-
-        if (auth) {
-            let typesToClear: Notification['type'][] = [];
-            if (tabId === 'reports') typesToClear.push('NEW_REPORT');
-            if (tabId === 'ai_alerts') typesToClear.push('NEW_AI_ALERT');
-            if (tabId === 'tickets') typesToClear.push('NEW_TICKET');
-            
-            if (typesToClear.length > 0) {
-                auth.markAdminNotificationsAsRead(typesToClear);
-            }
-        }
+        // Note: We removed auto-clearing here to allow manual clearing via button as requested
     };
 
 
@@ -111,9 +101,9 @@ const ModeratorConsoleView: React.FC<ModeratorConsoleViewProps> = ({ setSelected
             </div>
 
             <div className="bg-secondary p-4 sm:p-6 rounded-lg border border-border flex-1 overflow-y-auto">
-                {activeTab === 'reports' && <ReportsTab openDmForUser={openDmTabForUser} setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator} />}
-                {activeTab === 'ai_alerts' && <AIModAlertsTab openDmForUser={openDmTabForUser} setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator} setView={setView}/>}
-                {activeTab === 'tickets' && <TicketingSystemTab openDmForUser={openDmTabForUser} setSelectedCreator={setSelectedCreator} />}
+                {activeTab === 'reports' && <ReportsTab openDmForUser={openDmTabForUser} setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator} unreadCount={unreadNotifs.reports} />}
+                {activeTab === 'ai_alerts' && <AIModAlertsTab openDmForUser={openDmTabForUser} setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator} setView={setView} unreadCount={unreadNotifs.alerts} />}
+                {activeTab === 'tickets' && <TicketingSystemTab openDmForUser={openDmTabForUser} setSelectedCreator={setSelectedCreator} unreadCount={unreadNotifs.tickets} />}
                 {activeTab === 'dms' && <DirectMessagesTab preselectedUserContext={dmUserContext} setSelectedCreator={setSelectedCreator} />}
                 {activeTab === 'forum' && <ForumModerationTab setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator} />}
             </div>
@@ -135,15 +125,17 @@ interface ReportsTabProps {
   openDmForUser: (user: User, sourceFolder: 'Reports') => void;
   setSelectedCharacter: (character: Character) => void;
   setSelectedCreator: (user: User) => void;
+  unreadCount: number;
 }
 
-const ReportsTab: React.FC<ReportsTabProps> = ({ openDmForUser, setSelectedCharacter, setSelectedCreator }) => {
+const ReportsTab: React.FC<ReportsTabProps> = ({ openDmForUser, setSelectedCharacter, setSelectedCreator, unreadCount }) => {
     const auth = useContext(AuthContext);
     const [showResolved, setShowResolved] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [noteInputs, setNoteInputs] = useState<Record<string, string>>({});
+    const [deleteAction, setDeleteAction] = useState<{ type: 'character' | 'user' | 'comment', id: string, secondaryId?: string, name: string } | null>(null);
     
-    const { reports = [], findUserById, characters = [], silenceUser, deleteUser, deleteCharacter, silenceCharacter, deleteComment, resolveReport, addNoteToReport, silenceComment } = auth || ({} as any);
+    const { reports = [], findUserById, characters = [], silenceUser, deleteUser, deleteCharacter, silenceCharacter, deleteComment, resolveReport, addNoteToReport, silenceComment, markAdminNotificationsAsRead } = auth || ({} as any);
 
     const filteredReports = useMemo(() => {
          return reports
@@ -182,8 +174,28 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ openDmForUser, setSelectedChara
         }
     };
 
+    const handleConfirmDelete = () => {
+        if (!deleteAction) return;
+        const { type, id, secondaryId } = deleteAction;
+        if (type === 'character') deleteCharacter?.(id);
+        if (type === 'user') deleteUser?.(id);
+        if (type === 'comment' && secondaryId) deleteComment?.(secondaryId, id);
+        setDeleteAction(null);
+    }
+
     return (
         <div className="space-y-4">
+            <div className="flex justify-between items-center mb-2">
+                <h3 className="font-bold text-lg">Reports</h3>
+                {unreadCount > 0 && (
+                    <button 
+                        onClick={() => markAdminNotificationsAsRead?.(['NEW_REPORT'])}
+                        className="text-sm text-accent-secondary hover:underline"
+                    >
+                        Clear Notifications ({unreadCount})
+                    </button>
+                )}
+            </div>
             <TabFilter showResolved={showResolved} setShowResolved={setShowResolved}>
                 <input 
                     type="text"
@@ -234,9 +246,10 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ openDmForUser, setSelectedChara
                                     {entityCreator && <button onClick={() => silenceUser?.(entityCreator.id, !entityCreator.isSilenced)} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-yellow-400">{entityCreator.isSilenced ? 'Unsilence User' : 'Silence User'}</button>}
                                     {character && !comment && <button onClick={() => silenceCharacter?.(character.id, !character.isSilencedByAdmin)} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-yellow-400">{character.isSilencedByAdmin ? 'Unsilence' : 'Silence'} Character</button>}
                                     {comment && character && <button onClick={() => silenceComment?.(character.id, comment.id, !comment.isSilenced)} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-yellow-400">{comment.isSilenced ? 'Unsilence' : 'Silence'} Comment</button>}
-                                    {character && !comment && <button onClick={() => deleteCharacter?.(character.id)} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-danger">Delete Character</button>}
-                                    {user && <button onClick={() => deleteUser?.(user.id)} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-danger">Delete User</button>}
-                                    {comment && character && <button onClick={() => deleteComment?.(character.id, comment.id)} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-danger">Delete Comment</button>}
+                                    
+                                    {character && !comment && <button onClick={() => setDeleteAction({ type: 'character', id: character.id, name: character.name })} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-danger">Delete Character</button>}
+                                    {user && <button onClick={() => setDeleteAction({ type: 'user', id: user.id, name: user.profile.name })} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-danger">Delete User</button>}
+                                    {comment && character && <button onClick={() => setDeleteAction({ type: 'comment', id: comment.id, secondaryId: character.id, name: 'Comment' })} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-danger">Delete Comment</button>}
                                 </div>
                                 <button onClick={() => resolveReport?.(report.id, !report.isResolved)} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-success">{report.isResolved ? 'Re-open' : 'Mark Resolved'}</button>
                             </div>
@@ -264,6 +277,15 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ openDmForUser, setSelectedChara
                     );
                 })}
             </div>
+            {deleteAction && (
+                <ConfirmationModal
+                    title={`Delete ${deleteAction.type === 'comment' ? 'Comment' : deleteAction.name}?`}
+                    message={`Are you sure you want to delete this ${deleteAction.type}? This action cannot be undone.`}
+                    confirmText="Delete"
+                    onConfirm={handleConfirmDelete}
+                    onCancel={() => setDeleteAction(null)}
+                />
+            )}
         </div>
     );
 };
@@ -273,15 +295,16 @@ interface AIModAlertsTabProps {
   setSelectedCharacter: (character: Character) => void;
   setSelectedCreator: (user: User) => void;
   setView: (view: AppView) => void;
+  unreadCount: number;
 }
 
-const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelectedCharacter, setSelectedCreator, setView }) => {
+const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelectedCharacter, setSelectedCreator, setView, unreadCount }) => {
     const auth = useContext(AuthContext);
     const { 
-        aiAlerts = [], findUserById, silenceUser, updateAIAlertStatus,
+        aiAlerts = [], findUserById, silenceUser, updateAIAlertStatus, deleteAIAlert,
         aiAlertFolders = [], createAIAlertFolder, moveAIAlertToFolder,
         characters = [], allUsers, addNoteToAIAlert, updateAIAlertFeedback,
-        forumThreads = [], getPostsForThread
+        forumThreads = [], getPostsForThread, markAdminNotificationsAsRead
     } = auth || ({} as any);
 
     const [selectedAlert, setSelectedAlert] = useState<AIAlert | null>(null);
@@ -290,6 +313,7 @@ const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelec
     const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
     const [newFolderName, setNewFolderName] = useState('');
     const [noteInput, setNoteInput] = useState('');
+    const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
     useEffect(() => {
         if (selectedAlert) {
@@ -389,179 +413,212 @@ const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelec
         }
     };
 
+    const handleDeleteAlert = () => {
+        if (deleteAIAlert && selectedAlert) {
+            deleteAIAlert(selectedAlert.id);
+            setSelectedAlert(null);
+            setIsDeleteConfirmOpen(false);
+        }
+    }
+
     return (
-        <div className="flex h-[75vh]">
-            <div className="w-2/5 xl:w-1/3 border-r border-border flex flex-col">
-                <div className="p-2 border-b border-border space-y-2 flex-shrink-0">
-                    <button onClick={() => setSelectedFolderId('all')} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === 'all' ? 'bg-hover' : ''}`}>All Alerts</button>
-                    <button onClick={() => setSelectedFolderId('uncategorized')} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === 'uncategorized' ? 'bg-hover' : ''}`}>Uncategorized</button>
-                    {aiAlertFolders?.map(folder => (
-                        <button key={folder.id} onClick={() => setSelectedFolderId(folder.id)} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === folder.id ? 'bg-hover' : ''}`}>{folder.name}</button>
-                    ))}
-                    <div className="flex items-center gap-2 pt-2 border-t border-border">
-                        <input type="text" placeholder="New Folder Name" value={newFolderName} onChange={e => setNewFolderName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleCreateFolder()} className="w-full bg-primary border border-border rounded-md py-1 px-2 text-sm"/>
-                        <button onClick={handleCreateFolder} className="p-1 bg-tertiary hover:bg-hover rounded-md"><PlusIcon className="w-4 h-4" /></button>
-                    </div>
-                </div>
-                <div className="flex items-center p-2 border-b border-border flex-shrink-0">
-                    <div className="flex items-center gap-1 p-1 bg-primary border border-border rounded-md flex-grow">
-                        <button onClick={() => setStatusFilter('pending')} className={`flex-1 px-3 py-1 text-sm rounded ${statusFilter === 'pending' ? 'bg-accent-primary text-white' : 'hover:bg-hover'}`}>Pending</button>
-                        <button onClick={() => setStatusFilter('resolved')} className={`flex-1 px-3 py-1 text-sm rounded ${statusFilter === 'resolved' ? 'bg-success/50 text-white' : 'hover:bg-hover'}`}>Resolved</button>
-                    </div>
-                    <select value={sortOrder} onChange={e => setSortOrder(e.target.value as any)} className="bg-primary border border-border text-xs rounded ml-2">
-                        <option value="newest">Newest</option>
-                        <option value="oldest">Oldest</option>
-                    </select>
-                </div>
-                <div className="flex-1 overflow-y-auto">
-                    {sortedAndFilteredAlerts.map(alert => {
-                        return (
-                            <button key={alert.id} onClick={() => setSelectedAlert(alert)} className={`w-full text-left p-3 border-b border-border hover:bg-hover ${selectedAlert?.id === alert.id ? 'bg-hover' : ''}`}>
-                                <div className="flex justify-between items-start">
-                                    <p className="font-semibold truncate capitalize">{alert.category}</p>
-                                    <span className={`text-xs px-2 py-0.5 rounded-full ${alert.status === 'New' ? 'bg-blue-500/30 text-blue-300' : alert.status === 'Resolved' ? 'bg-success/30 text-success' : 'bg-tertiary'}`}>{alert.status}</span>
-                                </div>
-                                <p className="text-sm text-text-secondary truncate capitalize">{alert.entityType} alert</p>
-                                <p className="text-xs text-text-secondary mt-1">{new Date(alert.timestamp).toLocaleDateString()}</p>
-                            </button>
-                        );
-                    })}
-                </div>
-            </div>
-
-            <div className="w-3/5 xl:w-2/3 flex flex-col p-4">
-                {selectedAlert ? (
-                    (() => {
-                        const entityCreator = findUserById?.(selectedAlert.entityCreatorId || '');
-                        const { character, user, forumThread, forumPost } = getEntityInfo(selectedAlert);
-
-                        const handleGoToContent = () => {
-                            if (forumThread) {
-                                setView({ type: 'FORUM_THREAD', threadId: forumThread.id });
-                            } else if (character) {
-                                setSelectedCharacter(character);
-                            } else if (user) {
-                                setSelectedCreator(user);
-                            }
-                        };
-
-                        return (
-                            <div className="flex flex-col h-full">
-                                <div className="border-b border-border pb-3 mb-3">
-                                    <h2 className="text-2xl font-bold capitalize text-accent-primary">{selectedAlert.category}</h2>
-                                    <p className="text-sm text-text-secondary">Detected in a <span className="font-semibold">{selectedAlert.entityType}</span> on {new Date(selectedAlert.timestamp).toLocaleString()}</p>
-                                </div>
-                                
-                                {entityCreator && (
-                                    <div className="flex items-center gap-3 mb-4">
-                                        <p className="text-sm">Content creator:</p>
-                                        <button onClick={() => setSelectedCreator(entityCreator)} className="flex items-center gap-3 hover:opacity-80">
-                                            <Avatar imageId={entityCreator.profile.avatarUrl} alt={entityCreator.profile.name} className="w-8 h-8 rounded-full object-cover"/>
-                                            <p className="font-semibold text-left">{entityCreator.profile.name}</p>
-                                        </button>
-                                    </div>
-                                )}
-                                
-                                <div className="flex-1 overflow-y-auto bg-primary p-3 rounded-md border border-border mb-4 space-y-3">
-                                    {selectedAlert.explanation && (
-                                        <div>
-                                            <h4 className="text-sm font-semibold text-text-secondary mb-1">AI Explanation:</h4>
-                                            <p className="text-sm italic p-2 bg-tertiary rounded">"{selectedAlert.explanation}"</p>
-                                        </div>
-                                    )}
-                                    {selectedAlert.flaggedText && (
-                                        <div>
-                                            <h4 className="text-sm font-semibold text-text-secondary mb-1">Flagged Text:</h4>
-                                            <p className="font-mono text-sm whitespace-pre-wrap p-2 bg-tertiary rounded">"{selectedAlert.flaggedText}"</p>
-                                        </div>
-                                    )}
-                                    {(selectedAlert.entityType === 'forumPost' && forumPost) && (
-                                        <div>
-                                            <h4 className="text-sm font-semibold text-text-secondary mb-1">Full Post Content:</h4>
-                                            <div className="text-sm p-2 bg-tertiary rounded border border-border">
-                                                <p className="whitespace-pre-wrap">{forumPost.content}</p>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {(selectedAlert.entityType === 'forumThread' && forumThread) && (
-                                        <div>
-                                            <h4 className="text-sm font-semibold text-text-secondary mb-1">Thread Title:</h4>
-                                            <div className="text-sm p-2 bg-tertiary rounded border border-border">
-                                                <p className="font-semibold">{forumThread.title}</p>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {selectedAlert.entityType === 'image' && (
-                                         <div>
-                                            <h4 className="text-sm font-semibold text-text-secondary mb-1">Flagged Image:</h4>
-                                            <AlertImage imageId={selectedAlert.entityId} />
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="mt-auto space-y-4">
-                                     <div className="border-t border-border pt-3">
-                                        <h4 className="text-sm font-semibold text-text-secondary mb-2">Admin Notes</h4>
-                                        {selectedAlert.notes && selectedAlert.notes.length > 0 ? (
-                                            <ul className="text-xs text-text-secondary space-y-1 mb-2 list-disc list-inside max-h-24 overflow-y-auto">
-                                                {selectedAlert.notes.map((note, i) => <li key={i}>{note}</li>)}
-                                            </ul>
-                                        ) : <p className="text-xs text-text-secondary mb-2 italic">No notes yet.</p>}
-                                        <div className="flex gap-2">
-                                            <input type="text" placeholder="Add a new note..." value={noteInput} onChange={(e) => setNoteInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddNote()} className="flex-grow bg-tertiary border border-border rounded-md py-1 px-2 text-sm" />
-                                            <button onClick={handleAddNote} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-sm">Add Note</button>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <button onClick={handleGoToContent} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-sm" disabled={!character && !user && !forumThread}>Go to Content</button>
-                                        {entityCreator && <button onClick={() => openDmForUser(entityCreator, 'AI Alerts')} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-sm">Message User</button>}
-                                        {entityCreator && <button onClick={() => silenceUser?.(entityCreator.id, true)} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-sm text-yellow-400">Silence User</button>}
-                                    </div>
-
-                                    <div className="flex items-center justify-between gap-4">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-sm text-text-secondary">Status:</span>
-                                            <select value={selectedAlert.status} onChange={e => updateAIAlertStatus?.(selectedAlert.id, e.target.value as any)} className="bg-tertiary border border-border rounded-md p-2 text-sm">
-                                                <option>New</option>
-                                                <option>In Progress</option>
-                                                <option>Resolved</option>
-                                            </select>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-sm text-text-secondary">Move to:</span>
-                                            <select value={selectedAlert.folderId || ''} onChange={e => moveAIAlertToFolder?.(selectedAlert.id, e.target.value || null)} className="bg-tertiary border border-border rounded-md p-2 text-sm">
-                                                <option value="">Uncategorized</option>
-                                                {aiAlertFolders?.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div className="border-t border-border pt-3 flex items-center justify-center gap-4">
-                                        <span className="text-sm text-text-secondary">Was this alert helpful?</span>
-                                        <button onClick={() => updateAIAlertFeedback?.(selectedAlert.id, 'good')} className={`p-2 rounded-full ${selectedAlert.feedback === 'good' ? 'bg-success/30 text-success' : 'bg-tertiary hover:bg-hover'}`}>
-                                            <ThumbsUpIcon className="w-5 h-5" />
-                                        </button>
-                                         <button onClick={() => updateAIAlertFeedback?.(selectedAlert.id, 'bad')} className={`p-2 rounded-full ${selectedAlert.feedback === 'bad' ? 'bg-danger/30 text-danger' : 'bg-tertiary hover:bg-hover'}`}>
-                                            <ThumbsDownIcon className="w-5 h-5" />
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )
-                    })()
-                ) : (
-                    <div className="flex items-center justify-center h-full text-text-secondary">
-                        <p>Select an alert to view details.</p>
-                    </div>
+        <div className="flex h-[75vh] flex-col">
+             <div className="flex justify-between items-center mb-2 px-2">
+                <h3 className="font-bold text-lg">AI Alerts</h3>
+                {unreadCount > 0 && (
+                    <button 
+                        onClick={() => markAdminNotificationsAsRead?.(['NEW_AI_ALERT'])}
+                        className="text-sm text-accent-secondary hover:underline"
+                    >
+                        Clear Notifications ({unreadCount})
+                    </button>
                 )}
             </div>
+            <div className="flex h-full">
+                <div className="w-2/5 xl:w-1/3 border-r border-border flex flex-col">
+                    <div className="p-2 border-b border-border space-y-2 flex-shrink-0">
+                        <button onClick={() => setSelectedFolderId('all')} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === 'all' ? 'bg-hover' : ''}`}>All Alerts</button>
+                        <button onClick={() => setSelectedFolderId('uncategorized')} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === 'uncategorized' ? 'bg-hover' : ''}`}>Uncategorized</button>
+                        {aiAlertFolders?.map(folder => (
+                            <button key={folder.id} onClick={() => setSelectedFolderId(folder.id)} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === folder.id ? 'bg-hover' : ''}`}>{folder.name}</button>
+                        ))}
+                        <div className="flex items-center gap-2 pt-2 border-t border-border">
+                            <input type="text" placeholder="New Folder Name" value={newFolderName} onChange={e => setNewFolderName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleCreateFolder()} className="w-full bg-primary border border-border rounded-md py-1 px-2 text-sm"/>
+                            <button onClick={handleCreateFolder} className="p-1 bg-tertiary hover:bg-hover rounded-md"><PlusIcon className="w-4 h-4" /></button>
+                        </div>
+                    </div>
+                    <div className="flex items-center p-2 border-b border-border flex-shrink-0">
+                        <div className="flex items-center gap-1 p-1 bg-primary border border-border rounded-md flex-grow">
+                            <button onClick={() => setStatusFilter('pending')} className={`flex-1 px-3 py-1 text-sm rounded ${statusFilter === 'pending' ? 'bg-accent-primary text-white' : 'hover:bg-hover'}`}>Pending</button>
+                            <button onClick={() => setStatusFilter('resolved')} className={`flex-1 px-3 py-1 text-sm rounded ${statusFilter === 'resolved' ? 'bg-success/50 text-white' : 'hover:bg-hover'}`}>Resolved</button>
+                        </div>
+                        <select value={sortOrder} onChange={e => setSortOrder(e.target.value as any)} className="bg-primary border border-border text-xs rounded ml-2">
+                            <option value="newest">Newest</option>
+                            <option value="oldest">Oldest</option>
+                        </select>
+                    </div>
+                    <div className="flex-1 overflow-y-auto">
+                        {sortedAndFilteredAlerts.map(alert => {
+                            return (
+                                <button key={alert.id} onClick={() => setSelectedAlert(alert)} className={`w-full text-left p-3 border-b border-border hover:bg-hover ${selectedAlert?.id === alert.id ? 'bg-hover' : ''}`}>
+                                    <div className="flex justify-between items-start">
+                                        <p className="font-semibold truncate capitalize">{alert.category}</p>
+                                        <span className={`text-xs px-2 py-0.5 rounded-full ${alert.status === 'New' ? 'bg-blue-500/30 text-blue-300' : alert.status === 'Resolved' ? 'bg-success/30 text-success' : 'bg-tertiary'}`}>{alert.status}</span>
+                                    </div>
+                                    <p className="text-sm text-text-secondary truncate capitalize">{alert.entityType} alert</p>
+                                    <p className="text-xs text-text-secondary mt-1">{new Date(alert.timestamp).toLocaleDateString()}</p>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div className="w-3/5 xl:w-2/3 flex flex-col p-4">
+                    {selectedAlert ? (
+                        (() => {
+                            const entityCreator = findUserById?.(selectedAlert.entityCreatorId || '');
+                            const { character, user, forumThread, forumPost } = getEntityInfo(selectedAlert);
+
+                            const handleGoToContent = () => {
+                                if (forumThread) {
+                                    setView({ type: 'FORUM_THREAD', threadId: forumThread.id });
+                                } else if (character) {
+                                    setSelectedCharacter(character);
+                                } else if (user) {
+                                    setSelectedCreator(user);
+                                }
+                            };
+
+                            return (
+                                <div className="flex flex-col h-full">
+                                    <div className="border-b border-border pb-3 mb-3 flex justify-between items-start">
+                                        <div>
+                                            <h2 className="text-2xl font-bold capitalize text-accent-primary">{selectedAlert.category}</h2>
+                                            <p className="text-sm text-text-secondary">Detected in a <span className="font-semibold">{selectedAlert.entityType}</span> on {new Date(selectedAlert.timestamp).toLocaleString()}</p>
+                                        </div>
+                                        <button onClick={() => setIsDeleteConfirmOpen(true)} className="text-danger hover:text-red-400 p-2 hover:bg-tertiary rounded-full" title="Delete Alert"><DeleteIcon className="w-5 h-5"/></button>
+                                    </div>
+                                    
+                                    {entityCreator && (
+                                        <div className="flex items-center gap-3 mb-4">
+                                            <p className="text-sm">Content creator:</p>
+                                            <button onClick={() => setSelectedCreator(entityCreator)} className="flex items-center gap-3 hover:opacity-80">
+                                                <Avatar imageId={entityCreator.profile.avatarUrl} alt={entityCreator.profile.name} className="w-8 h-8 rounded-full object-cover"/>
+                                                <p className="font-semibold text-left">{entityCreator.profile.name}</p>
+                                            </button>
+                                        </div>
+                                    )}
+                                    
+                                    <div className="flex-1 overflow-y-auto bg-primary p-3 rounded-md border border-border mb-4 space-y-3">
+                                        {selectedAlert.explanation && (
+                                            <div>
+                                                <h4 className="text-sm font-semibold text-text-secondary mb-1">AI Explanation:</h4>
+                                                <p className="text-sm italic p-2 bg-tertiary rounded">"{selectedAlert.explanation}"</p>
+                                            </div>
+                                        )}
+                                        {selectedAlert.flaggedText && (
+                                            <div>
+                                                <h4 className="text-sm font-semibold text-text-secondary mb-1">Flagged Text:</h4>
+                                                <p className="font-mono text-sm whitespace-pre-wrap p-2 bg-tertiary rounded">"{selectedAlert.flaggedText}"</p>
+                                            </div>
+                                        )}
+                                        {(selectedAlert.entityType === 'forumPost' && forumPost) && (
+                                            <div>
+                                                <h4 className="text-sm font-semibold text-text-secondary mb-1">Full Post Content:</h4>
+                                                <div className="text-sm p-2 bg-tertiary rounded border border-border">
+                                                    <p className="whitespace-pre-wrap">{forumPost.content}</p>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {(selectedAlert.entityType === 'forumThread' && forumThread) && (
+                                            <div>
+                                                <h4 className="text-sm font-semibold text-text-secondary mb-1">Thread Title:</h4>
+                                                <div className="text-sm p-2 bg-tertiary rounded border border-border">
+                                                    <p className="font-semibold">{forumThread.title}</p>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {selectedAlert.entityType === 'image' && (
+                                            <div>
+                                                <h4 className="text-sm font-semibold text-text-secondary mb-1">Flagged Image:</h4>
+                                                <AlertImage imageId={selectedAlert.entityId} />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="mt-auto space-y-4">
+                                        <div className="border-t border-border pt-3">
+                                            <h4 className="text-sm font-semibold text-text-secondary mb-2">Admin Notes</h4>
+                                            {selectedAlert.notes && selectedAlert.notes.length > 0 ? (
+                                                <ul className="text-xs text-text-secondary space-y-1 mb-2 list-disc list-inside max-h-24 overflow-y-auto">
+                                                    {selectedAlert.notes.map((note, i) => <li key={i}>{note}</li>)}
+                                                </ul>
+                                            ) : <p className="text-xs text-text-secondary mb-2 italic">No notes yet.</p>}
+                                            <div className="flex gap-2">
+                                                <input type="text" placeholder="Add a new note..." value={noteInput} onChange={(e) => setNoteInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddNote()} className="flex-grow bg-tertiary border border-border rounded-md py-1 px-2 text-sm" />
+                                                <button onClick={handleAddNote} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-sm">Add Note</button>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <button onClick={handleGoToContent} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-sm" disabled={!character && !user && !forumThread}>Go to Content</button>
+                                            {entityCreator && <button onClick={() => openDmForUser(entityCreator, 'AI Alerts')} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-sm">Message User</button>}
+                                            {entityCreator && <button onClick={() => silenceUser?.(entityCreator.id, true)} className="px-3 py-1 bg-tertiary hover:bg-hover rounded text-sm text-yellow-400">Silence User</button>}
+                                        </div>
+
+                                        <div className="flex items-center justify-between gap-4">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm text-text-secondary">Status:</span>
+                                                <select value={selectedAlert.status} onChange={e => updateAIAlertStatus?.(selectedAlert.id, e.target.value as any)} className="bg-tertiary border border-border rounded-md p-2 text-sm">
+                                                    <option>New</option>
+                                                    <option>In Progress</option>
+                                                    <option>Resolved</option>
+                                                </select>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm text-text-secondary">Move to:</span>
+                                                <select value={selectedAlert.folderId || ''} onChange={e => moveAIAlertToFolder?.(selectedAlert.id, e.target.value || null)} className="bg-tertiary border border-border rounded-md p-2 text-sm">
+                                                    <option value="">Uncategorized</option>
+                                                    {aiAlertFolders?.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div className="border-t border-border pt-3 flex items-center justify-center gap-4">
+                                            <span className="text-sm text-text-secondary">Was this alert helpful?</span>
+                                            <button onClick={() => updateAIAlertFeedback?.(selectedAlert.id, 'good')} className={`p-2 rounded-full ${selectedAlert.feedback === 'good' ? 'bg-success/30 text-success' : 'bg-tertiary hover:bg-hover'}`}>
+                                                <ThumbsUpIcon className="w-5 h-5" />
+                                            </button>
+                                            <button onClick={() => updateAIAlertFeedback?.(selectedAlert.id, 'bad')} className={`p-2 rounded-full ${selectedAlert.feedback === 'bad' ? 'bg-danger/30 text-danger' : 'bg-tertiary hover:bg-hover'}`}>
+                                                <ThumbsDownIcon className="w-5 h-5" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )
+                        })()
+                    ) : (
+                        <div className="flex items-center justify-center h-full text-text-secondary">
+                            <p>Select an alert to view details.</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+            {isDeleteConfirmOpen && (
+                <ConfirmationModal 
+                    title="Delete Alert?"
+                    message="Are you sure you want to delete this alert record? This action cannot be undone."
+                    confirmText="Delete"
+                    onConfirm={handleDeleteAlert}
+                    onCancel={() => setIsDeleteConfirmOpen(false)}
+                />
+            )}
         </div>
     );
 };
 
-const TicketingSystemTab: React.FC<{ openDmForUser: (user: User, sourceFolder: 'Ticketing System') => void; setSelectedCreator: (user: User) => void; }> = ({ openDmForUser, setSelectedCreator }) => {
+const TicketingSystemTab: React.FC<{ openDmForUser: (user: User, sourceFolder: 'Ticketing System') => void; setSelectedCreator: (user: User) => void; unreadCount: number; }> = ({ openDmForUser, setSelectedCreator, unreadCount }) => {
     const auth = useContext(AuthContext);
-    const { tickets = [], findUserById, updateTicketStatus, ticketFolders, createTicketFolder, moveTicketToFolder } = auth || ({} as any);
+    const { tickets = [], findUserById, updateTicketStatus, ticketFolders, createTicketFolder, moveTicketToFolder, markAdminNotificationsAsRead } = auth || ({} as any);
     
     const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
     const [selectedFolderId, setSelectedFolderId] = useState<string | null>('all'); // 'all', 'uncategorized', or a folder ID
@@ -611,89 +668,102 @@ const TicketingSystemTab: React.FC<{ openDmForUser: (user: User, sourceFolder: '
     }, [tickets, selectedFolderId, sortOrder]);
 
     return (
-        <div className="flex h-[75vh]">
-            <div className="w-2/5 xl:w-1/3 border-r border-border flex flex-col">
-                <div className="p-2 border-b border-border space-y-2 flex-shrink-0">
-                    <button onClick={() => setSelectedFolderId('all')} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === 'all' ? 'bg-hover' : ''}`}>All Tickets</button>
-                    <button onClick={() => setSelectedFolderId('uncategorized')} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === 'uncategorized' ? 'bg-hover' : ''}`}>Uncategorized</button>
-                    {ticketFolders?.map(folder => (
-                        <button key={folder.id} onClick={() => setSelectedFolderId(folder.id)} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === folder.id ? 'bg-hover' : ''}`}>{folder.name}</button>
-                    ))}
-                    <div className="flex items-center gap-2 pt-2 border-t border-border">
-                        <input type="text" placeholder="New Folder Name" value={newFolderName} onChange={e => setNewFolderName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleCreateFolder()} className="w-full bg-primary border border-border rounded-md py-1 px-2 text-sm"/>
-                        <button onClick={handleCreateFolder} className="p-1 bg-tertiary hover:bg-hover rounded-md"><PlusIcon className="w-4 h-4" /></button>
-                    </div>
-                </div>
-                <div className="flex items-center justify-between p-2 border-b border-border flex-shrink-0">
-                    <span className="text-xs text-text-secondary">Sort by:</span>
-                    <select value={sortOrder} onChange={e => setSortOrder(e.target.value as any)} className="bg-primary border border-border text-xs rounded">
-                        <option value="newest">Newest</option>
-                        <option value="oldest">Oldest</option>
-                        <option value="status">Status</option>
-                    </select>
-                </div>
-                <div className="flex-1 overflow-y-auto">
-                    {sortedAndFilteredTickets.map(ticket => {
-                        const submitter = findUserById?.(ticket.submitterId);
-                        return (
-                            <button key={ticket.id} onClick={() => setSelectedTicket(ticket)} className={`w-full text-left p-3 border-b border-border hover:bg-hover ${selectedTicket?.id === ticket.id ? 'bg-hover' : ''}`}>
-                                <div className="flex justify-between items-start">
-                                    <p className="font-semibold truncate">{ticket.subject}</p>
-                                    <span className={`text-xs px-2 py-0.5 rounded-full ${ticket.status === 'New' ? 'bg-blue-500/30 text-blue-300' : ticket.status === 'Resolved' ? 'bg-success/30 text-success' : 'bg-tertiary'}`}>{ticket.status}</span>
-                                </div>
-                                <p className="text-sm text-text-secondary truncate">From: {submitter?.profile.name || 'Unknown'}</p>
-                                <p className="text-xs text-text-secondary mt-1">{new Date(ticket.timestamp).toLocaleDateString()}</p>
-                            </button>
-                        );
-                    })}
-                </div>
-            </div>
-            <div className="w-3/5 xl:w-2/3 flex flex-col p-4">
-                {selectedTicket ? (
-                    (() => {
-                        const submitter = findUserById?.(selectedTicket.submitterId);
-                        return (
-                            <div className="flex flex-col h-full">
-                                <h2 className="text-2xl font-bold border-b border-border pb-3 mb-3">{selectedTicket.subject}</h2>
-                                {submitter && (
-                                    <div className="flex items-center gap-3 mb-4">
-                                        <button onClick={() => setSelectedCreator(submitter)} className="flex items-center gap-3 hover:opacity-80">
-                                            <Avatar imageId={submitter.profile.avatarUrl} alt={submitter.profile.name} className="w-10 h-10 rounded-full object-cover"/>
-                                            <div>
-                                                <p className="font-semibold text-left">{submitter.profile.name}</p>
-                                                <p className="text-sm text-text-secondary text-left">{selectedTicket.email}</p>
-                                            </div>
-                                        </button>
-                                    </div>
-                                )}
-                                <div className="flex-1 overflow-y-auto bg-primary p-3 rounded-md border border-border mb-4">
-                                    <p className="whitespace-pre-wrap">{selectedTicket.description}</p>
-                                </div>
-                                <div className="flex items-center justify-between gap-4 mt-auto">
-                                    <div className="flex items-center gap-4">
-                                        <select value={selectedTicket.status} onChange={e => updateTicketStatus?.(selectedTicket.id, e.target.value as TicketStatus)} className="bg-tertiary border border-border rounded-md p-2">
-                                            <option>New</option>
-                                            <option>In Progress</option>
-                                            <option>Resolved</option>
-                                        </select>
-                                        {submitter && <button onClick={() => openDmForUser(submitter, 'Ticketing System')} className="px-4 py-2 bg-accent-secondary hover:bg-accent-secondary-hover rounded-md">Reply via DM</button>}
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-sm text-text-secondary">Move to:</span>
-                                        <select value={selectedTicket.folderId || ''} onChange={e => moveTicketToFolder?.(selectedTicket.id, e.target.value || null)} className="bg-tertiary border border-border rounded-md p-2 text-sm">
-                                            <option value="">Uncategorized</option>
-                                            {ticketFolders?.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        )
-                    })()
-                ) : (
-                    <div className="flex items-center justify-center h-full text-text-secondary">
-                        <p>Select a ticket to view details.</p>
-                    </div>
+        <div className="flex h-[75vh] flex-col">
+             <div className="flex justify-between items-center mb-2 px-2">
+                <h3 className="font-bold text-lg">Tickets</h3>
+                {unreadCount > 0 && (
+                    <button 
+                        onClick={() => markAdminNotificationsAsRead?.(['NEW_TICKET'])}
+                        className="text-sm text-accent-secondary hover:underline"
+                    >
+                        Clear Notifications ({unreadCount})
+                    </button>
                 )}
+            </div>
+            <div className="flex h-full">
+                <div className="w-2/5 xl:w-1/3 border-r border-border flex flex-col">
+                    <div className="p-2 border-b border-border space-y-2 flex-shrink-0">
+                        <button onClick={() => setSelectedFolderId('all')} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === 'all' ? 'bg-hover' : ''}`}>All Tickets</button>
+                        <button onClick={() => setSelectedFolderId('uncategorized')} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === 'uncategorized' ? 'bg-hover' : ''}`}>Uncategorized</button>
+                        {ticketFolders?.map(folder => (
+                            <button key={folder.id} onClick={() => setSelectedFolderId(folder.id)} className={`w-full text-left p-2 rounded hover:bg-hover ${selectedFolderId === folder.id ? 'bg-hover' : ''}`}>{folder.name}</button>
+                        ))}
+                        <div className="flex items-center gap-2 pt-2 border-t border-border">
+                            <input type="text" placeholder="New Folder Name" value={newFolderName} onChange={e => setNewFolderName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleCreateFolder()} className="w-full bg-primary border border-border rounded-md py-1 px-2 text-sm"/>
+                            <button onClick={handleCreateFolder} className="p-1 bg-tertiary hover:bg-hover rounded-md"><PlusIcon className="w-4 h-4" /></button>
+                        </div>
+                    </div>
+                    <div className="flex items-center justify-between p-2 border-b border-border flex-shrink-0">
+                        <span className="text-xs text-text-secondary">Sort by:</span>
+                        <select value={sortOrder} onChange={e => setSortOrder(e.target.value as any)} className="bg-primary border border-border text-xs rounded">
+                            <option value="newest">Newest</option>
+                            <option value="oldest">Oldest</option>
+                            <option value="status">Status</option>
+                        </select>
+                    </div>
+                    <div className="flex-1 overflow-y-auto">
+                        {sortedAndFilteredTickets.map(ticket => {
+                            const submitter = findUserById?.(ticket.submitterId);
+                            return (
+                                <button key={ticket.id} onClick={() => setSelectedTicket(ticket)} className={`w-full text-left p-3 border-b border-border hover:bg-hover ${selectedTicket?.id === ticket.id ? 'bg-hover' : ''}`}>
+                                    <div className="flex justify-between items-start">
+                                        <p className="font-semibold truncate">{ticket.subject}</p>
+                                        <span className={`text-xs px-2 py-0.5 rounded-full ${ticket.status === 'New' ? 'bg-blue-500/30 text-blue-300' : ticket.status === 'Resolved' ? 'bg-success/30 text-success' : 'bg-tertiary'}`}>{ticket.status}</span>
+                                    </div>
+                                    <p className="text-sm text-text-secondary truncate">From: {submitter?.profile.name || 'Unknown'}</p>
+                                    <p className="text-xs text-text-secondary mt-1">{new Date(ticket.timestamp).toLocaleDateString()}</p>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+                <div className="w-3/5 xl:w-2/3 flex flex-col p-4">
+                    {selectedTicket ? (
+                        (() => {
+                            const submitter = findUserById?.(selectedTicket.submitterId);
+                            return (
+                                <div className="flex flex-col h-full">
+                                    <h2 className="text-2xl font-bold border-b border-border pb-3 mb-3">{selectedTicket.subject}</h2>
+                                    {submitter && (
+                                        <div className="flex items-center gap-3 mb-4">
+                                            <button onClick={() => setSelectedCreator(submitter)} className="flex items-center gap-3 hover:opacity-80">
+                                                <Avatar imageId={submitter.profile.avatarUrl} alt={submitter.profile.name} className="w-10 h-10 rounded-full object-cover"/>
+                                                <div>
+                                                    <p className="font-semibold text-left">{submitter.profile.name}</p>
+                                                    <p className="text-sm text-text-secondary text-left">{selectedTicket.email}</p>
+                                                </div>
+                                            </button>
+                                        </div>
+                                    )}
+                                    <div className="flex-1 overflow-y-auto bg-primary p-3 rounded-md border border-border mb-4">
+                                        <p className="whitespace-pre-wrap">{selectedTicket.description}</p>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-4 mt-auto">
+                                        <div className="flex items-center gap-4">
+                                            <select value={selectedTicket.status} onChange={e => updateTicketStatus?.(selectedTicket.id, e.target.value as TicketStatus)} className="bg-tertiary border border-border rounded-md p-2">
+                                                <option>New</option>
+                                                <option>In Progress</option>
+                                                <option>Resolved</option>
+                                            </select>
+                                            {submitter && <button onClick={() => openDmForUser(submitter, 'Ticketing System')} className="px-4 py-2 bg-accent-secondary hover:bg-accent-secondary-hover rounded-md">Reply via DM</button>}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm text-text-secondary">Move to:</span>
+                                            <select value={selectedTicket.folderId || ''} onChange={e => moveTicketToFolder?.(selectedTicket.id, e.target.value || null)} className="bg-tertiary border border-border rounded-md p-2 text-sm">
+                                                <option value="">Uncategorized</option>
+                                                {ticketFolders?.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            )
+                        })()
+                    ) : (
+                        <div className="flex items-center justify-center h-full text-text-secondary">
+                            <p>Select a ticket to view details.</p>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );

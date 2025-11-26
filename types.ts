@@ -1,6 +1,9 @@
 
 
 
+
+
+
 export const TTSVoices = {
   Kore: "Female - Calm",
   Zephyr: "Female - Warm",
@@ -278,6 +281,7 @@ export interface ApiConnection {
 }
 
 export type AITool = 
+  | 'aiCharacterChat'
   | 'imageGeneration'
   | 'characterSummarization'
   | 'narrativeSummarization'
@@ -285,8 +289,13 @@ export type AITool =
   | 'textModeration'
   | 'imageModeration';
 
+export interface ToolConfig {
+  connectionId: string | null;
+  modelOverride: string | null;
+}
+
 export interface AIToolSettings {
-  toolConnections: Record<AITool, string | null>; // Maps tool to ApiConnection.id
+  toolConfigs: Record<AITool, ToolConfig>;
 }
 
 

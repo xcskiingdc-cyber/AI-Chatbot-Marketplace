@@ -1,8 +1,9 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import type { Character, ChatMessage, AppView } from '../types';
 import Avatar from './Avatar';
 import { DeleteIcon } from './Icons';
+import ConfirmationModal from './ConfirmationModal';
 
 interface RecentChatsViewProps {
   characters: Character[];
@@ -12,6 +13,8 @@ interface RecentChatsViewProps {
 }
 
 const RecentChatsView: React.FC<RecentChatsViewProps> = ({ characters, userChatHistories, setView, deleteChatHistory }) => {
+  const [chatToDelete, setChatToDelete] = useState<string | null>(null);
+
   const recentChats = Object.keys(userChatHistories)
     .map(characterId => {
       const character = characters.find(c => c.id === characterId);
@@ -33,6 +36,13 @@ const RecentChatsView: React.FC<RecentChatsViewProps> = ({ characters, userChatH
       </div>
     );
   }
+
+  const handleConfirmDelete = () => {
+      if (chatToDelete) {
+          deleteChatHistory(chatToDelete);
+          setChatToDelete(null);
+      }
+  };
 
   return (
     <div className="w-full max-w-4xl mx-auto p-2 sm:p-6 md:p-8 overflow-hidden">
@@ -68,7 +78,7 @@ const RecentChatsView: React.FC<RecentChatsViewProps> = ({ characters, userChatH
             </div>
 
              <button
-                onClick={(e) => { e.stopPropagation(); deleteChatHistory(character.id); }}
+                onClick={(e) => { e.stopPropagation(); setChatToDelete(character.id); }}
                 className="p-2 sm:p-2.5 text-red-400 hover:bg-red-900/20 hover:text-red-300 rounded-full transition-colors flex-shrink-0 ml-1"
                 aria-label="Delete Chat"
                 title="Delete Chat"
@@ -78,6 +88,16 @@ const RecentChatsView: React.FC<RecentChatsViewProps> = ({ characters, userChatH
           </div>
         ))}
       </div>
+      
+      {chatToDelete && (
+        <ConfirmationModal
+            title="Delete Chat History?"
+            message="Are you sure you want to delete the entire chat history with this character? This action cannot be undone."
+            confirmText="Delete"
+            onConfirm={handleConfirmDelete}
+            onCancel={() => setChatToDelete(null)}
+        />
+      )}
     </div>
   );
 };

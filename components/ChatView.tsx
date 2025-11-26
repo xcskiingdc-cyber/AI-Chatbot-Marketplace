@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback, useContext, useMemo } from 'react';
 import { Character, ChatMessage, ChatSettings, ApiConnection } from '../types';
 import { getTextToSpeech, generateChatResponseWithStats } from '../services/aiService';
@@ -38,12 +39,19 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   const [ttsAudioCache, setTtsAudioCache] = useState<Map<string, string>>(new Map());
   const [currentlyPlayingTtsId, setCurrentlyPlayingTtsId] = useState<string | null>(null);
   const activeTtsSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const auth = useContext(AuthContext);
-  const { findConnectionForModel, apiConnections, findConnectionForTool } = auth || ({} as any);
+  const { findConnectionForModel, apiConnections, getToolConfig } = auth || ({} as any);
+
+  const globalChatConfig = useMemo(() => {
+      return getToolConfig ? getToolConfig('aiCharacterChat') : undefined;
+  }, [getToolConfig]);
 
   const userChatSettings = useMemo(() => {
+    if (!character) return { model: 'gemini-2.5-flash', isStreaming: true, ttsVoice: 'Kore', kidMode: false } as ChatSettings;
+
     const defaultSettings: ChatSettings = {
         model: character.model,
         isStreaming: true,
@@ -55,19 +63,25 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
 
     const finalSettings = { ...defaultSettings, ...savedSettings };
     
-    if (auth.currentUser.userType === 'Free' && finalSettings.model.includes('pro')) {
-        const fallbackModel = apiConnections?.flatMap(c => c.models).find(m => m.includes('flash') && !m.includes('tts'));
-        finalSettings.model = fallbackModel || character.model;
+    // STRICT GLOBAL OVERRIDE LOGIC
+    if (globalChatConfig) {
+        if (globalChatConfig.model) {
+            // Admin set a specific model override
+            finalSettings.model = globalChatConfig.model;
+        } else if (globalChatConfig.connection && globalChatConfig.connection.models.length > 0) {
+            // Admin set "Default Model" for a connection. Use the first available.
+            finalSettings.model = globalChatConfig.connection.models[0];
+        }
     }
 
     return finalSettings;
-  }, [auth?.currentUser, auth?.chatSettings, character.id, character.model, apiConnections]);
+  }, [auth?.currentUser, auth?.chatSettings, character, apiConnections, globalChatConfig]);
   
   const displayedHistory = useMemo(() => {
       if (chatHistory.length > 0) {
           return chatHistory;
       }
-      if (character.greeting) {
+      if (character && character.greeting) {
           const processedGreeting = character.greeting
               .replace(/{{char}}/g, character.name)
               .replace(/{{user}}/g, auth?.currentUser?.profile.name || 'user');
@@ -75,7 +89,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
           return [greetingMessage];
       }
       return [];
-  }, [chatHistory, character.greeting, character.name, auth?.currentUser]);
+  }, [chatHistory, character, auth?.currentUser]);
 
 
   useEffect(() => {
@@ -84,13 +98,27 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   
   const handleSend = useCallback(async () => {
     const textToSend = input.trim();
-    if (!textToSend || isLoading || !auth?.currentUser || !auth.aiContextSettings || !findConnectionForModel) return;
+    if (!textToSend || isLoading || !auth?.currentUser || !auth.aiContextSettings || !findConnectionForModel || !character) return;
     
-    const connection = findConnectionForModel(userChatSettings.model);
+    let connection = findConnectionForModel(userChatSettings.model);
+    
+    // Priority 1: Global Tool Config (if active)
+    if (globalChatConfig) {
+        connection = globalChatConfig.connection;
+    }
+
+    // Safety Check 1: Connection exists
     if (!connection) {
-        const errorMessage: ChatMessage = { id: crypto.randomUUID(), sender: 'bot', text: `Error: Could not find an API connection for the selected model "${userChatSettings.model}". Please select a different model in settings or ask an administrator to configure it.`, timestamp: Date.now() };
+        const errorMessage: ChatMessage = { id: crypto.randomUUID(), sender: 'bot', text: `Error: No active API connection found for Chat. Please contact an administrator to configure the 'AI Character Chat' tool.`, timestamp: Date.now() };
         updateChatHistory(character.id, [...displayedHistory, errorMessage]);
         return;
+    }
+
+    // Safety Check 2: Model exists
+    if (!userChatSettings.model) {
+         const errorMessage: ChatMessage = { id: crypto.randomUUID(), sender: 'bot', text: `Error: No model selected. Please configure a model in the AI API Settings.`, timestamp: Date.now() };
+         updateChatHistory(character.id, [...displayedHistory, errorMessage]);
+         return;
     }
 
     setIsLoading(true);
@@ -106,9 +134,11 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
     const newHistory = [...displayedHistory, userMessage];
     updateChatHistory(character.id, newHistory);
 
+    // Slicing history for context window based on admin settings
     const historyForApi = newHistory.filter(msg => msg.id !== 'greeting-0');
+    const limit = auth.aiContextSettings.historyLength || 50;
+    const slicedHistory = historyForApi.slice(-limit);
 
-    // Always use the stats-aware response generation to enable automatic narrative state.
     try {
         let statsForUpdate = auth.chatStats?.[auth.currentUser.id]?.[character.id];
         if (!statsForUpdate && character.stats.length > 0) {
@@ -118,10 +148,11 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
             });
         }
 
-        const narrativeState = auth.narrativeStates?.[auth.currentUser.id]?.[character.id] || {};
+        // Retrieve existing narrative state to pass to AI
+        const currentNarrativeState = auth.narrativeStates?.[auth.currentUser.id]?.[character.id] || {};
 
         const { statChanges, responseText, newNarrativeState } = await generateChatResponseWithStats(
-            character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, statsForUpdate, narrativeState, connection
+            character, slicedHistory, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, statsForUpdate, currentNarrativeState, connection
         );
         
         if (responseText.startsWith("Error:")) {
@@ -144,8 +175,20 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
           auth.updateChatStats(character.id, finalStats);
         }
         
-        if (newNarrativeState && auth.updateNarrativeState) {
-            auth.updateNarrativeState(character.id, newNarrativeState);
+        // Narrative Updates: Append new events to existing ones
+        if (newNarrativeState && newNarrativeState.events && newNarrativeState.events.length > 0 && auth.updateNarrativeState) {
+            const updatedEvents = [
+                ...(currentNarrativeState.events || []), 
+                ...newNarrativeState.events
+            ];
+            // Keep the history reasonable (e.g., last 50 events) to prevent token bloat, 
+            // in a real app you'd summarize these periodically.
+            const limitedEvents = updatedEvents.slice(-50);
+            
+            auth.updateNarrativeState(character.id, {
+                ...currentNarrativeState,
+                events: limitedEvents
+            });
         }
 
         const botMessage: ChatMessage = { 
@@ -170,7 +213,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
         setIsLoading(false);
     }
 
-  }, [input, isLoading, auth, character, updateChatHistory, userChatSettings, displayedHistory, findConnectionForModel]);
+  }, [input, isLoading, auth, character, updateChatHistory, userChatSettings, displayedHistory, findConnectionForModel, globalChatConfig]);
   
   const stopCurrentTts = useCallback(() => {
     if (activeTtsSourceRef.current) {
@@ -181,20 +224,23 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
     setCurrentlyPlayingTtsId(null);
   }, []);
 
-  const ttsConnection = useMemo(() => {
-    if (!findConnectionForTool) return null;
-    return findConnectionForTool('textToSpeech');
-  }, [findConnectionForTool]);
+  const ttsConfig = useMemo(() => {
+    if (!getToolConfig) return null;
+    return getToolConfig('textToSpeech');
+  }, [getToolConfig]);
 
 
   useEffect(() => {
     return () => {
         stopCurrentTts();
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+            audioContextRef.current.close();
+        }
     };
   }, [stopCurrentTts]);
   
   const playTTS = useCallback(async (text: string, messageId: string) => {
-    if (!ttsConnection) {
+    if (!ttsConfig) {
         alert("Text-to-speech is not available. An administrator needs to configure it in the AI API Settings.");
         return;
     }
@@ -204,19 +250,23 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
     }
     stopCurrentTts();
 
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+    if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        audioContextRef.current = new AudioContextClass({ sampleRate: 24000 });
+    }
     
-    if (audioContext.state === 'suspended') {
-        await audioContext.resume();
+    if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
     }
 
     const playAudio = async (base64: string) => {
+        if (!audioContextRef.current) return;
         try {
             const audioData = decode(base64);
-            const audioBuffer = await decodeAudioData(audioData, audioContext, 24000, 1);
-            const source = audioContext.createBufferSource();
+            const audioBuffer = await decodeAudioData(audioData, audioContextRef.current, 24000, 1);
+            const source = audioContextRef.current.createBufferSource();
             source.buffer = audioBuffer;
-            source.connect(audioContext.destination);
+            source.connect(audioContextRef.current.destination);
             
             activeTtsSourceRef.current = source;
             setCurrentlyPlayingTtsId(messageId);
@@ -243,7 +293,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
 
     setIsTtsLoading(prev => new Set(prev).add(messageId));
     try {
-        const base64Audio = await getTextToSpeech(text, userChatSettings.ttsVoice, ttsConnection);
+        const base64Audio = await getTextToSpeech(text, userChatSettings.ttsVoice, ttsConfig.connection, ttsConfig.model);
         if (base64Audio) {
             setTtsAudioCache(prevCache => new Map(prevCache).set(messageId, base64Audio));
             await playAudio(base64Audio);
@@ -257,7 +307,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
             return next;
         });
     }
-  }, [userChatSettings.ttsVoice, ttsAudioCache, currentlyPlayingTtsId, stopCurrentTts, ttsConnection]);
+  }, [userChatSettings.ttsVoice, ttsAudioCache, currentlyPlayingTtsId, stopCurrentTts, ttsConfig]);
   
   const handleUpdateMessage = (messageId: string, newText: string) => {
     const updatedHistory = chatHistory.map(msg => 
@@ -280,25 +330,26 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   }
 
   const handleRetry = useCallback(async (messageId: string) => {
-    if (isLoading || !auth?.currentUser || !auth.aiContextSettings || !findConnectionForModel) return;
+    if (isLoading || !auth?.currentUser || !auth.aiContextSettings || !findConnectionForModel || !character) return;
 
-    const connection = findConnectionForModel(userChatSettings.model);
+    let connection = findConnectionForModel(userChatSettings.model);
+    if (globalChatConfig) {
+        connection = globalChatConfig.connection;
+    }
+
     if (!connection) {
-        // This is unlikely if a previous message was sent, but good to have a guard.
         console.error(`Retry failed: Could not find connection for model ${userChatSettings.model}`);
         return;
     }
 
     const messageIndex = displayedHistory.findIndex(msg => msg.id === messageId);
     if (messageIndex === -1 || displayedHistory[messageIndex].sender !== 'bot') {
-        console.warn("Retry can only be performed on bot messages.");
         return;
     }
 
     const historyForRetry = displayedHistory.slice(0, messageIndex);
     const lastMessage = historyForRetry[historyForRetry.length - 1];
     if (lastMessage?.sender !== 'user') {
-        console.warn("Cannot retry, the preceding message is not from the user.");
         return;
     }
 
@@ -313,7 +364,10 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
     
     updateChatHistory(character.id, historyForRetry);
     
+    // Slicing for context
     const historyForApi = historyForRetry.filter(msg => msg.id !== 'greeting-0');
+    const limit = auth.aiContextSettings.historyLength || 50;
+    const slicedHistory = historyForApi.slice(-limit);
 
     try {
         let statsForUpdate = auth.chatStats?.[auth.currentUser.id]?.[character.id];
@@ -327,7 +381,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
         const narrativeState = auth.narrativeStates?.[auth.currentUser.id]?.[character.id] || {};
 
         const { statChanges, responseText, newNarrativeState } = await generateChatResponseWithStats(
-            character, historyForApi, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, statsForUpdate, narrativeState, connection
+            character, slicedHistory, auth.currentUser, auth.globalSettings, auth.aiContextSettings, userChatSettings.kidMode, userChatSettings.model, statsForUpdate, narrativeState, connection
         );
 
         if (responseText.startsWith("Error:")) {
@@ -350,8 +404,12 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
           auth.updateChatStats(character.id, finalStats);
         }
 
-        if (newNarrativeState && auth.updateNarrativeState) {
-            auth.updateNarrativeState(character.id, newNarrativeState);
+        if (newNarrativeState && newNarrativeState.events && auth.updateNarrativeState) {
+             const updatedEvents = [
+                ...(narrativeState.events || []), 
+                ...newNarrativeState.events
+            ];
+            auth.updateNarrativeState(character.id, { ...narrativeState, events: updatedEvents.slice(-50) });
         }
         
         const botMessage: ChatMessage = { 
@@ -375,7 +433,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
     } finally {
         setIsLoading(false);
     }
-  }, [isLoading, auth, character, updateChatHistory, userChatSettings, displayedHistory, findConnectionForModel]);
+  }, [isLoading, auth, character, updateChatHistory, userChatSettings, displayedHistory, findConnectionForModel, globalChatConfig]);
 
   const handleSaveSettings = (settings: ChatSettings) => {
     auth?.updateChatSettings(character.id, settings);
@@ -384,9 +442,9 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
   
   const narrativeState = auth?.currentUser ? auth.narrativeStates?.[auth.currentUser.id]?.[character.id] || {} : {};
 
-  const summaryConnection = useMemo(() => {
-    if (!auth?.findConnectionForTool) return null;
-    return auth.findConnectionForTool('narrativeSummarization');
+  const summaryConfig = useMemo(() => {
+    if (!auth?.getToolConfig) return null;
+    return auth.getToolConfig('narrativeSummarization');
   }, [auth]);
 
   const characterStats = useMemo(() => {
@@ -394,7 +452,6 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
     const stats = auth.chatStats?.[auth.currentUser.id]?.[character.id];
     if (stats) return stats;
     
-    // If no stats are saved yet, create from initial values
     const initialStats: Record<string, number> = {};
     character.stats.forEach(stat => {
         initialStats[stat.id] = stat.initialValue;
@@ -404,7 +461,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
 
 
   return (
-    <div className="flex flex-col h-full bg-primary">
+    <div className="flex flex-col h-full bg-primary/95">
       <div className="p-4 border-b border-border flex items-center justify-between gap-4 flex-shrink-0">
         <button onClick={() => onCharacterSelect(character)} className="flex items-center gap-4 overflow-hidden text-left group">
             <Avatar imageId={character.avatarUrl} alt={character.name} className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover flex-shrink-0 transition-transform group-hover:scale-105" />
@@ -438,7 +495,7 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="p-4 border-t border-border bg-primary flex-shrink-0">
+      <div className="p-4 border-t border-border bg-primary/95 flex-shrink-0">
         <div className="flex items-center bg-secondary rounded-lg p-2 gap-2">
             <textarea
                 value={input}
@@ -480,10 +537,10 @@ const ChatView: React.FC<ChatViewProps> = ({ character, chatHistory, updateChatH
             }}
             userType={auth.currentUser.userType}
             apiConnections={apiConnections || []}
-            ttsConnection={ttsConnection}
+            ttsConfig={ttsConfig}
             character={character}
             narrativeState={narrativeState}
-            summaryConnection={summaryConnection}
+            summaryConfig={summaryConfig}
             characterStats={characterStats}
         />
        )}

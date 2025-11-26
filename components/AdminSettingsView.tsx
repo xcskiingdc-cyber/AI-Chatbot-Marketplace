@@ -1,12 +1,11 @@
 
 import React, { useState, useContext, useMemo, useEffect, useCallback, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext';
-// FIX: Import UserProfile to resolve the 'Cannot find name' error.
 import { GlobalSettings, User, UserType, Character, AIContextSettings, CharacterContextField, UserRole, AppView, UserProfile } from '../types';
 import ConfirmationModal from './ConfirmationModal';
 import ProfileEditModal from './ProfileEditModal';
 import Avatar from './Avatar';
-import { ShieldCheckIcon, SaveIcon } from './Icons';
+import { ShieldCheckIcon, SaveIcon, SpinnerIcon, RefreshIcon, EditIcon, DeleteIcon, CloseIcon } from './Icons';
 import { DEFAULT_BEYOND_PROMPT, DEFAULT_HAVEN_PROMPT } from '../services/aiService';
 
 interface AdminConsoleViewProps {
@@ -59,7 +58,7 @@ const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({ setView, setSelecte
                 {activeTab === 'context' && <AIContextManagementTab />}
                 {activeTab === 'kid_mode' && <KidModeManagementTab />}
                 {activeTab === 'users' && <UserManagementTab />}
-                {activeTab === 'content' && <ContentModerationTab setView={setView}/>}
+                {activeTab === 'content' && <ContentModerationTab setView={setView} setSelectedCharacter={setSelectedCharacter} setSelectedCreator={setSelectedCreator} />}
             </div>
         </div>
     );
@@ -115,6 +114,7 @@ const GlobalPromptsTab: React.FC = () => {
         beyondTheHavenPrompt: '',
     });
     const [isSaved, setIsSaved] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
         if (auth?.globalSettings) {
@@ -125,12 +125,20 @@ const GlobalPromptsTab: React.FC = () => {
         }
     }, [auth?.globalSettings]);
 
-    const handleSave = () => {
+    const handleSave = async () => {
         if (auth) {
-            auth.updateGlobalSettings({ ...auth.globalSettings, ...prompts });
+            setIsSaving(true);
+            try {
+                await auth.updateGlobalSettings({ ...auth.globalSettings, ...prompts });
+                setIsSaved(true);
+                setTimeout(() => setIsSaved(false), 2500);
+            } catch (error) {
+                console.error("Save failed", error);
+                alert("Failed to save global prompts. Please check your network.");
+            } finally {
+                setIsSaving(false);
+            }
         }
-        setIsSaved(true);
-        setTimeout(() => setIsSaved(false), 2500);
     };
     
     const labelClasses = "block text-sm font-medium text-accent-primary mb-2";
@@ -139,7 +147,7 @@ const GlobalPromptsTab: React.FC = () => {
     return (
         <div className="space-y-6">
             <div>
-                <label htmlFor="havenPrompt" className={labelClasses}>Haven Global Prompt</label>
+                <label htmlFor="havenPrompt" className="labelClasses">Haven Global Prompt</label>
                 <textarea 
                     id="havenPrompt"
                     value={prompts.havenPrompt}
@@ -149,7 +157,7 @@ const GlobalPromptsTab: React.FC = () => {
                 />
             </div>
             <div>
-                <label htmlFor="beyondTheHavenPrompt" className={labelClasses}>Beyond the Haven Global Prompt</label>
+                <label htmlFor="beyondTheHavenPrompt" className="labelClasses">Beyond the Haven Global Prompt</label>
                 <textarea 
                     id="beyondTheHavenPrompt"
                     value={prompts.beyondTheHavenPrompt}
@@ -166,9 +174,14 @@ const GlobalPromptsTab: React.FC = () => {
                             ? 'bg-success text-white cursor-default' 
                             : 'bg-accent-secondary text-white hover:bg-accent-secondary-hover'
                     }`}
-                    disabled={isSaved}
+                    disabled={isSaving || isSaved}
                 >
-                    {isSaved ? (
+                    {isSaving ? (
+                        <>
+                            <SpinnerIcon className="w-5 h-5 animate-spin"/>
+                            Saving...
+                        </>
+                    ) : isSaved ? (
                         <>
                             <SaveIcon className="w-5 h-5" />
                             Saved!
@@ -186,6 +199,7 @@ const KidModeManagementTab: React.FC = () => {
     const auth = useContext(AuthContext);
     const [kidPrompt, setKidPrompt] = useState('');
     const [isSaved, setIsSaved] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
         if (auth?.globalSettings.kidModePrompt) {
@@ -193,11 +207,19 @@ const KidModeManagementTab: React.FC = () => {
         }
     }, [auth?.globalSettings.kidModePrompt]);
 
-    const handleSave = () => {
+    const handleSave = async () => {
         if(auth) {
-            auth.updateGlobalSettings({ ...auth.globalSettings, kidModePrompt: kidPrompt });
-            setIsSaved(true);
-            setTimeout(() => setIsSaved(false), 2500);
+            setIsSaving(true);
+            try {
+                await auth.updateGlobalSettings({ ...auth.globalSettings, kidModePrompt: kidPrompt });
+                setIsSaved(true);
+                setTimeout(() => setIsSaved(false), 2500);
+            } catch (error) {
+                console.error("Save failed", error);
+                alert("Failed to save Kid Mode prompt. Please check your network.");
+            } finally {
+                setIsSaving(false);
+            }
         }
     };
     
@@ -207,7 +229,7 @@ const KidModeManagementTab: React.FC = () => {
     return (
         <div className="space-y-6">
             <div>
-                <label htmlFor="kidModePrompt" className={labelClasses}>Kid Mode Instructions</label>
+                <label htmlFor="kidModePrompt" className="labelClasses">Kid Mode Instructions</label>
                  <p className="text-sm text-text-secondary mb-3">These instructions are added to the system prompt when a user enables 'Kid Mode' in their chat settings. Use this to guide the AI to be more child-friendly.</p>
                 <textarea 
                     id="kidModePrompt"
@@ -225,9 +247,14 @@ const KidModeManagementTab: React.FC = () => {
                             ? 'bg-success text-white cursor-default' 
                             : 'bg-accent-secondary text-white hover:bg-accent-secondary-hover'
                     }`}
-                    disabled={isSaved}
+                    disabled={isSaving || isSaved}
                 >
-                    {isSaved ? (
+                    {isSaving ? (
+                        <>
+                            <SpinnerIcon className="w-5 h-5 animate-spin"/>
+                            Saving...
+                        </>
+                    ) : isSaved ? (
                         <>
                             <SaveIcon className="w-5 h-5" />
                             Saved!
@@ -244,13 +271,13 @@ const KidModeManagementTab: React.FC = () => {
 const AIContextManagementTab: React.FC = () => {
     const auth = useContext(AuthContext);
     const [settings, setSettings] = useState<AIContextSettings>({ 
-        includedFields: ['gender', 'personality', 'story', 'situation', 'feeling', 'appearance'], 
-        historyLength: 200,
-        maxResponseTokens: 150,
+        includedFields: ['gender', 'personality', 'story', 'feeling', 'appearance', 'situation', 'greeting'], 
+        historyLength: 50,
+        maxResponseTokens: 1000,
     });
     const [inputValues, setInputValues] = useState({
-        historyLength: '200',
-        maxResponseTokens: '150',
+        historyLength: '50',
+        maxResponseTokens: '1000',
     });
     const [errors, setErrors] = useState({
         historyLength: '',
@@ -260,7 +287,7 @@ const AIContextManagementTab: React.FC = () => {
 
     const allFields: { id: CharacterContextField; label: string }[] = [
         { id: 'gender', label: 'Gender' },
-        { id: 'description', label: 'Description' },
+        // Description is intentionally removed to enforce the "no description in context" rule
         { id: 'personality', label: 'Personality' },
         { id: 'appearance', label: 'Appearance' },
         { id: 'story', label: 'Backstory' },
@@ -332,7 +359,7 @@ const AIContextManagementTab: React.FC = () => {
         <div className="space-y-6">
             <div>
                 <label className={labelClasses}>Character Fields for Context</label>
-                <p className="text-sm text-text-secondary mb-3">Select which fields from a character's profile are included in the AI's system instruction.</p>
+                <p className="text-sm text-text-secondary mb-3">Select which fields from a character's profile are included in the AI's system instruction. 'Description' is excluded by system policy.</p>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                     {allFields.map(field => (
                         <label key={field.id} className="flex items-center space-x-2 text-text-primary p-2 bg-primary border border-border rounded-md">
@@ -348,7 +375,7 @@ const AIContextManagementTab: React.FC = () => {
                 </div>
             </div>
             <div>
-                <label htmlFor="historyLength" className={labelClasses}>Chat History Context Length</label>
+                <label htmlFor="historyLength" className="labelClasses">Chat History Context Length</label>
                 <p className="text-sm text-text-secondary mb-3">How many previous messages (user and bot combined) to include for context. Recommended: 20-40.</p>
                 <input
                     type="number"
@@ -360,8 +387,8 @@ const AIContextManagementTab: React.FC = () => {
                 {errors.historyLength && <p className={errorTextClasses}>{errors.historyLength}</p>}
             </div>
             <div>
-                <label htmlFor="maxResponseTokens" className={labelClasses}>Max Response Tokens</label>
-                <p className="text-sm text-text-secondary mb-3">The maximum number of tokens the AI can generate in a single response. A lower number means shorter replies. (e.g., 150)</p>
+                <label htmlFor="maxResponseTokens" className="labelClasses">Max Response Tokens</label>
+                <p className="text-sm text-text-secondary mb-3">The maximum number of tokens the AI can generate in a single response. Lower values may cut off responses mid-sentence. Recommended: 500-1000.</p>
                 <input
                     type="number"
                     id="maxResponseTokens"
@@ -426,9 +453,9 @@ const UserManagementTab: React.FC = () => {
         );
     }, [allUsers, filter]);
 
-    const handleSaveProfile = (profile: UserProfile) => {
+    const handleSaveProfile = (profile: UserProfile, avatarFile: File | null) => {
         if (userToEdit) {
-            updateAnyUserProfile(userToEdit.id, profile);
+            updateAnyUserProfile(userToEdit.id, profile, avatarFile);
         }
         setUserToEdit(null);
     };
@@ -522,154 +549,240 @@ const UserManagementTab: React.FC = () => {
             {userToDelete && (
                 <ConfirmationModal 
                     title="Delete User?"
-                    message={`Are you sure you want to permanently delete user "${userToDelete.profile.name}"? This action cannot be undone.`}
-                    onConfirm={handleConfirmDelete}
-                    onCancel={() => setUserToDelete(null)}
+                    message={`Are you sure you want to permanently delete user "${userToDelete.profile.name}"? This cannot be undone.`} 
+                    onConfirm={handleConfirmDelete} 
+                    onCancel={() => setUserToDelete(null)} 
                 />
             )}
         </div>
     );
 };
 
-const ToggleSwitch: React.FC<{ id: string, checked: boolean; onChange: () => void; disabled?: boolean }> = ({ id, checked, onChange, disabled }) => (
-    <label htmlFor={id} className={`relative inline-block w-14 h-8 align-middle select-none transition duration-200 ease-in ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+const ToggleSwitch: React.FC<{ id: string, checked: boolean; onChange: () => void }> = ({ id, checked, onChange }) => (
+    <label htmlFor={id} className="relative inline-block w-12 h-6 align-middle select-none cursor-pointer">
         <input 
             type="checkbox" 
             id={id}
             checked={checked} 
-            onChange={!disabled ? onChange : undefined} 
+            onChange={onChange} 
             className="sr-only"
-            disabled={disabled}
         />
-        <div className={`block w-14 h-8 rounded-full ${checked ? 'bg-success' : 'bg-tertiary'}`}></div>
-        <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${checked ? 'transform translate-x-6' : ''}`}></div>
+        <div className={`block w-12 h-6 rounded-full transition-colors ${checked ? 'bg-success' : 'bg-tertiary'}`}></div>
+        <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${checked ? 'transform translate-x-6' : ''}`}></div>
     </label>
 );
 
-const ContentModerationTab: React.FC<{setView: (view: AppView) => void}> = ({setView}) => {
+const ContentModerationTab: React.FC<{
+    setView: (view: AppView) => void;
+    setSelectedCharacter: (character: Character) => void;
+    setSelectedCreator: (user: User) => void;
+}> = ({setView, setSelectedCharacter, setSelectedCreator}) => {
     const auth = useContext(AuthContext);
-    const [filter, setFilter] = useState('');
-    const [visibilityFilter, setVisibilityFilter] = useState<'all' | 'public' | 'private'>('all');
-    const [charToDelete, setCharToDelete] = useState<Character | null>(null);
-    const [isModerationEnabled, setIsModerationEnabled] = useState(true);
+    const { globalSettings, updateGlobalSettings, runFullModerationScan, characters = [], silenceCharacter, deleteCharacter, findUserById } = auth || ({} as any);
+    
+    const [isScanning, setIsScanning] = useState(false);
+    const [scanProgress, setScanProgress] = useState({ current: 0, total: 0 });
+    const [characterSearch, setCharacterSearch] = useState('');
+    const [charToDelete, setCharToDelete] = useState<string | null>(null);
 
-    if (!auth) return null;
-
-    const { characters = [], findUserById, silenceCharacter, deleteCharacter, globalSettings, updateGlobalSettings } = auth;
-
-    useEffect(() => {
-        if (globalSettings) {
-            setIsModerationEnabled(globalSettings.enableAIModeration !== false);
+    const handleToggleAIModeration = () => {
+        if (updateGlobalSettings && globalSettings) {
+            updateGlobalSettings({ ...globalSettings, enableAIModeration: !globalSettings.enableAIModeration });
         }
-    }, [globalSettings]);
-
-    const filteredCharacters = useMemo(() => {
-        const lowerFilter = filter.toLowerCase();
-        return characters.filter(c => {
-            if (visibilityFilter === 'public' && !c.isPublic) return false;
-            if (visibilityFilter === 'private' && c.isPublic) return false;
-            if (lowerFilter && !c.name.toLowerCase().includes(lowerFilter) && !c.description.toLowerCase().includes(lowerFilter)) return false;
-            return true;
-        });
-    }, [characters, filter, visibilityFilter]);
-
-    const handleConfirmDelete = () => {
-        if(charToDelete) {
-            deleteCharacter(charToDelete.id);
-        }
-        setCharToDelete(null);
-    }
-
-    const handleToggleModeration = () => {
-        const newState = !isModerationEnabled;
-        setIsModerationEnabled(newState);
-        updateGlobalSettings({ ...globalSettings, enableAIModeration: newState });
     };
 
-    return (
-        <div className="space-y-6">
-             <div className="bg-primary p-4 border border-border rounded-lg flex flex-col sm:flex-row justify-between items-center gap-4">
-                 <div>
-                     <h3 className="font-bold text-lg text-text-primary">Auto-Moderation Settings</h3>
-                     <p className="text-sm text-text-secondary">When enabled, the AI will scan all new user comments for policy violations.</p>
-                 </div>
-                 <div className="flex items-center gap-3">
-                     <span className={`font-medium ${isModerationEnabled ? 'text-success' : 'text-text-secondary'}`}>
-                         {isModerationEnabled ? 'Enabled' : 'Disabled'}
-                     </span>
-                     <ToggleSwitch 
-                        id="mod-toggle" 
-                        checked={isModerationEnabled} 
-                        onChange={handleToggleModeration} 
-                     />
-                 </div>
-             </div>
+    const handleRunScan = async () => {
+        if (runFullModerationScan) {
+            setIsScanning(true);
+            setScanProgress({ current: 0, total: 0 });
+            await runFullModerationScan((current: number, total: number) => {
+                setScanProgress({ current, total });
+            });
+            setIsScanning(false);
+        }
+    };
 
-             <div className="flex flex-col sm:flex-row gap-4">
-                <input 
-                    type="text"
-                    placeholder="Search by name or description..."
-                    value={filter}
-                    onChange={e => setFilter(e.target.value)}
-                    className="w-full max-w-lg p-2 bg-primary border border-border rounded-md"
-                />
-                <select 
-                    value={visibilityFilter} 
-                    onChange={e => setVisibilityFilter(e.target.value as any)}
-                    className="p-2 bg-primary border border-border rounded-md"
-                >
-                    <option value="all">All Visibilities</option>
-                    <option value="public">Public Only</option>
-                    <option value="private">Private Only</option>
-                </select>
-             </div>
-             <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-border">
-                    <thead className="bg-primary">
-                        <tr>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary uppercase">Character</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary uppercase">Creator</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary uppercase">Status</th>
-                            <th className="relative px-4 py-2"><span className="sr-only">Actions</span></th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                        {filteredCharacters.map(character => {
-                            const creator = findUserById(character.creatorId);
-                            return (
-                                <tr key={character.id}>
-                                    <td className="px-4 py-3 whitespace-nowrap">
-                                        <div className="flex items-center gap-3">
-                                            <Avatar imageId={character.avatarUrl} alt={character.name} className="w-8 h-8 rounded-full object-cover" />
-                                            <p className="font-medium">{character.name}</p>
-                                        </div>
-                                    </td>
-                                    <td className="px-4 py-3 whitespace-nowrap text-sm">{creator?.profile.name || 'Unknown'}</td>
-                                    <td className="px-4 py-3 whitespace-nowrap text-sm">
-                                        {character.isSilencedByAdmin ? 
-                                            <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-900/50 text-yellow-300">Silenced</span> :
-                                            <span className="px-2 py-1 text-xs font-semibold rounded-full bg-success/20 text-success">{character.isPublic ? 'Public' : 'Private'}</span>
-                                        }
-                                    </td>
-                                    <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
-                                        <button onClick={() => setView({type: 'EDIT_CHARACTER', characterId: character.id})} className="text-accent-secondary hover:underline mr-4">Edit</button>
-                                        <button onClick={() => silenceCharacter(character.id, !character.isSilencedByAdmin)} className="text-yellow-400 hover:underline mr-4">{character.isSilencedByAdmin ? 'Unsilence' : 'Silence'}</button>
-                                        <button onClick={() => setCharToDelete(character)} className="text-danger hover:underline">Delete</button>
+    const handleConfirmDeleteCharacter = () => {
+        if (charToDelete && deleteCharacter) {
+            deleteCharacter(charToDelete);
+            setCharToDelete(null);
+        }
+    };
+
+    const filteredCharacters = useMemo(() => {
+        if (!characterSearch) return characters;
+        const lower = characterSearch.toLowerCase();
+        return characters.filter((c: Character) => {
+            const creator = findUserById?.(c.creatorId);
+            const creatorName = creator?.profile?.name || '';
+            return c.name.toLowerCase().includes(lower) || creatorName.toLowerCase().includes(lower);
+        });
+    }, [characters, characterSearch, findUserById]);
+
+    return (
+        <div className="space-y-8">
+            {/* Moderation Tools Section */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="p-4 bg-primary border border-border rounded-lg flex flex-col justify-between">
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-lg font-semibold text-text-primary">Active AI Moderation</h3>
+                            <ToggleSwitch 
+                                id="ai-mod-toggle"
+                                checked={globalSettings?.enableAIModeration || false}
+                                onChange={handleToggleAIModeration}
+                            />
+                        </div>
+                        <p className="text-sm text-text-secondary">Automatically scan new comments and forum posts for policy violations.</p>
+                    </div>
+                </div>
+
+                <div className="p-4 bg-primary border border-border rounded-lg flex flex-col justify-between">
+                    <div>
+                        <h3 className="text-lg font-semibold text-text-primary mb-2">Manual Content Scan</h3>
+                        <p className="text-sm text-text-secondary mb-4">Run a one-time scan on all existing content.</p>
+                    </div>
+                    {isScanning ? (
+                        <div className="w-full bg-tertiary rounded-full h-4 overflow-hidden relative">
+                            <div 
+                                className="bg-accent-secondary h-full transition-all duration-300" 
+                                style={{ width: `${(scanProgress.current / Math.max(scanProgress.total, 1)) * 100}%` }}
+                            ></div>
+                            <p className="text-xs text-center text-white absolute inset-0 flex items-center justify-center drop-shadow-md">
+                                {scanProgress.current} / {scanProgress.total}
+                            </p>
+                        </div>
+                    ) : (
+                        <button 
+                            onClick={handleRunScan}
+                            className="px-4 py-2 bg-tertiary hover:bg-hover text-text-primary rounded-md transition-colors flex items-center justify-center gap-2"
+                        >
+                            <RefreshIcon className="w-4 h-4" />
+                            Run Full Scan
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            <div className="border-t border-border"></div>
+
+            {/* Character Management Section */}
+            <div>
+                <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
+                    <h2 className="text-xl font-bold text-text-primary">Character Management</h2>
+                    <input 
+                        type="text"
+                        placeholder="Search characters or creators..."
+                        value={characterSearch}
+                        onChange={e => setCharacterSearch(e.target.value)}
+                        className="w-full sm:w-64 p-2 bg-primary border border-border rounded-md text-sm"
+                    />
+                </div>
+
+                <div className="overflow-x-auto bg-primary border border-border rounded-lg">
+                    <table className="min-w-full divide-y divide-border">
+                        <thead className="bg-tertiary">
+                            <tr>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Character</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Creator</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Status</th>
+                                <th className="px-4 py-3 text-right text-xs font-medium text-text-secondary uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                            {filteredCharacters.map((char: Character) => {
+                                const creator = findUserById?.(char.creatorId);
+                                return (
+                                    <tr key={char.id} className="hover:bg-secondary/50 transition-colors">
+                                        <td className="px-4 py-3 whitespace-nowrap">
+                                            <button onClick={() => setSelectedCharacter(char)} className="flex items-center gap-3 hover:opacity-80 text-left">
+                                                <Avatar imageId={char.avatarUrl} alt={char.name} className="w-8 h-8 rounded-full object-cover" />
+                                                <span className="font-semibold text-text-primary">{char.name}</span>
+                                            </button>
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap">
+                                            {creator ? (
+                                                <button onClick={() => setSelectedCreator(creator)} className="text-sm text-text-primary hover:underline">
+                                                    {creator.profile.name}
+                                                </button>
+                                            ) : (
+                                                <span className="text-sm text-text-secondary italic">Unknown</span>
+                                            )}
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap">
+                                            <div className="flex gap-1">
+                                                <span className={`px-2 py-0.5 text-xs rounded-full ${char.isPublic ? 'bg-success/20 text-success' : 'bg-tertiary text-text-secondary'}`}>
+                                                    {char.isPublic ? 'Public' : 'Private'}
+                                                </span>
+                                                {char.isBeyondTheHaven && (
+                                                    <span className="px-2 py-0.5 text-xs rounded-full bg-danger/20 text-danger">Beyond</span>
+                                                )}
+                                                {char.isSilencedByAdmin && (
+                                                    <span className="px-2 py-0.5 text-xs rounded-full bg-yellow-900/50 text-yellow-400">Silenced</span>
+                                                )}
+                                            </div>
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
+                                            <div className="flex items-center justify-end gap-2">
+                                                <button 
+                                                    onClick={() => setSelectedCharacter(char)}
+                                                    className="p-1.5 text-text-secondary hover:text-accent-primary hover:bg-tertiary rounded transition-colors"
+                                                    title="View"
+                                                >
+                                                    {/* Eye Icon fallback/reuse */}
+                                                    <span className="text-xs font-bold border border-current px-1 rounded">View</span>
+                                                </button>
+                                                <button 
+                                                    onClick={() => setView({ type: 'EDIT_CHARACTER', characterId: char.id })}
+                                                    className="p-1.5 text-text-secondary hover:text-accent-secondary hover:bg-tertiary rounded transition-colors"
+                                                    title="Edit"
+                                                >
+                                                    <EditIcon className="w-4 h-4" />
+                                                </button>
+                                                <button 
+                                                    onClick={() => silenceCharacter?.(char.id, !char.isSilencedByAdmin)}
+                                                    className={`p-1.5 rounded transition-colors ${char.isSilencedByAdmin ? 'text-yellow-400 bg-yellow-900/20' : 'text-text-secondary hover:text-yellow-400 hover:bg-tertiary'}`}
+                                                    title={char.isSilencedByAdmin ? "Unsilence" : "Silence"}
+                                                >
+                                                    <span className="text-xs font-bold px-1">!</span>
+                                                </button>
+                                                <button 
+                                                    onClick={() => setCharToDelete(char.id)}
+                                                    className="p-1.5 text-text-secondary hover:text-danger hover:bg-tertiary rounded transition-colors"
+                                                    title="Delete"
+                                                >
+                                                    <DeleteIcon className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                            {filteredCharacters.length === 0 && (
+                                <tr>
+                                    <td colSpan={4} className="px-4 py-8 text-center text-text-secondary">
+                                        No characters found.
                                     </td>
                                 </tr>
-                            )
-                        })}
-                    </tbody>
-                </table>
-             </div>
-             {charToDelete && (
-                 <ConfirmationModal
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div className="flex justify-end">
+                 <button onClick={() => setView({ type: 'MODERATOR_CONSOLE' })} className="text-accent-secondary hover:underline text-sm">Go to Moderator Console &rarr;</button>
+            </div>
+
+            {charToDelete && (
+                <ConfirmationModal 
                     title="Delete Character?"
-                    message={`Are you sure you want to permanently delete "${charToDelete.name}"? This will also remove all associated chat histories.`}
-                    onConfirm={handleConfirmDelete}
+                    message="Are you sure you want to delete this character? This action cannot be undone and will remove all associated chats."
+                    confirmText="Delete"
+                    onConfirm={handleConfirmDeleteCharacter}
                     onCancel={() => setCharToDelete(null)}
-                 />
-             )}
+                />
+            )}
         </div>
     );
 };

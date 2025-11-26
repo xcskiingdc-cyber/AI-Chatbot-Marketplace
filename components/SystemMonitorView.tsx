@@ -1,10 +1,11 @@
 
-import React, { useState, useContext, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useContext, useEffect, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { ApiConnection, Character, GlobalSettings, AIContextSettings, CharacterContextField, ChatMessage, User } from '../types';
-import { SystemMonitorIcon, SpinnerIcon, UserIcon, DocumentTextIcon, CodeBracketIcon, ChatBubbleIcon, CpuChipIcon, ServerIcon, SparklesIcon, DatabaseIcon, CloseIcon, UploadIcon, RefreshIcon, EditIcon } from './Icons';
+import { ApiConnection, Character, GlobalSettings, AIContextSettings, ChatMessage } from '../types';
+import { SystemMonitorIcon, SpinnerIcon, UserIcon, DocumentTextIcon, CodeBracketIcon, ChatBubbleIcon, CpuChipIcon, ServerIcon, SparklesIcon, DatabaseIcon, CloseIcon, UploadIcon, RefreshIcon, DeleteIcon, ShieldCheckIcon, MicrophoneIcon, BookIcon } from './Icons';
 import { buildSystemPrompt, DEFAULT_HAVEN_PROMPT, DEFAULT_BEYOND_PROMPT, generateChatResponseWithStats, editImage } from '../services/aiService';
 import Logo from './Logo';
+import Avatar from './Avatar';
 
 declare let Cropper: any;
 
@@ -33,7 +34,108 @@ const InfoRow: React.FC<{ label: string; value?: string | React.ReactNode; child
     </div>
 );
 
-// --- Chat Flow Diagram Components ---
+// Helper function for consistent logic
+const isCharacterSummarized = (c: Character) => {
+    return !!c.summary && (!!c.summary.description || !!c.summary.personality);
+};
+
+const CharacterRow: React.FC<{ 
+    character: Character, 
+    statusText: string, 
+    statusColorClass: string,
+    onSilence: (id: string, isSilenced: boolean) => void,
+    onDelete: (id: string) => void
+}> = ({ character, statusText, statusColorClass, onSilence, onDelete }) => (
+    <div className={`flex items-center gap-3 p-2 bg-secondary rounded-md border-l-2 ${statusColorClass} hover:bg-tertiary transition-colors group`}>
+        <Avatar imageId={character.avatarUrl} alt={character.name} className="w-8 h-8 rounded-full object-cover flex-shrink-0"/>
+        <div className="overflow-hidden flex-1">
+            <div className="flex items-center gap-2">
+                <p className="font-medium truncate text-sm text-text-primary">{character.name}</p>
+                {character.isSilencedByAdmin && <span className="text-[10px] bg-warning/20 text-warning px-1 rounded">Silenced</span>}
+            </div>
+            <p className="text-xs text-text-secondary truncate">{statusText}</p>
+        </div>
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button 
+                onClick={() => onSilence(character.id, !character.isSilencedByAdmin)} 
+                className="p-1.5 text-text-secondary hover:text-warning hover:bg-white/5 rounded" 
+                title={character.isSilencedByAdmin ? "Unsilence" : "Silence"}
+            >
+                <span className="text-xs font-bold">!</span>
+            </button>
+            <button 
+                onClick={() => { if(window.confirm('Delete this character?')) onDelete(character.id); }} 
+                className="p-1.5 text-text-secondary hover:text-danger hover:bg-white/5 rounded"
+                title="Delete"
+            >
+                <DeleteIcon className="w-4 h-4" />
+            </button>
+        </div>
+    </div>
+);
+
+const SummaryStatusModal: React.FC<{ isOpen: boolean; onClose: () => void; characters: Character[] }> = ({ isOpen, onClose, characters }) => {
+    const auth = useContext(AuthContext);
+    if (!isOpen) return null;
+
+    const summarized = characters.filter(isCharacterSummarized);
+    const notSummarized = characters.filter(c => !isCharacterSummarized(c));
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+            <div className="bg-primary rounded-lg w-full max-w-4xl max-h-[80vh] flex flex-col border border-border shadow-soft-lg">
+                <div className="p-4 border-b border-border flex justify-between items-center">
+                    <h3 className="text-xl font-bold text-text-primary">Character Summary Status</h3>
+                    <button onClick={onClose} className="text-text-secondary hover:text-text-primary"><CloseIcon className="w-6 h-6" /></button>
+                </div>
+                <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+                    <div className="flex-1 p-4 border-b md:border-b-0 md:border-r border-border overflow-y-auto">
+                        <h4 className="text-lg font-semibold text-success mb-3 flex items-center gap-2 sticky top-0 bg-primary z-10 py-2">
+                            <span>Summarized</span>
+                            <span className="text-xs bg-success/20 px-2 py-0.5 rounded-full text-white">{summarized.length}</span>
+                        </h4>
+                        <div className="space-y-2">
+                            {summarized.map(c => (
+                                <CharacterRow 
+                                    key={c.id} 
+                                    character={c} 
+                                    statusText="Optimized context ready" 
+                                    statusColorClass="border-success" 
+                                    onSilence={auth?.silenceCharacter || (() => {})}
+                                    onDelete={auth?.deleteCharacter || (() => {})}
+                                />
+                            ))}
+                            {summarized.length === 0 && <p className="text-sm text-text-secondary italic p-2">No characters summarized yet.</p>}
+                        </div>
+                    </div>
+                    <div className="flex-1 p-4 overflow-y-auto">
+                        <h4 className="text-lg font-semibold text-text-secondary mb-3 flex items-center gap-2 sticky top-0 bg-primary z-10 py-2">
+                            <span>Raw Profile</span>
+                            <span className="text-xs bg-tertiary px-2 py-0.5 rounded-full text-white">{notSummarized.length}</span>
+                        </h4>
+                        <div className="space-y-2">
+                            {notSummarized.map(c => (
+                                <CharacterRow 
+                                    key={c.id} 
+                                    character={c} 
+                                    statusText="Using raw fields" 
+                                    statusColorClass="border-warning" 
+                                    onSilence={auth?.silenceCharacter || (() => {})}
+                                    onDelete={auth?.deleteCharacter || (() => {})}
+                                />
+                            ))}
+                             {notSummarized.length === 0 && <p className="text-sm text-text-secondary italic p-2">All characters are summarized.</p>}
+                        </div>
+                    </div>
+                </div>
+                <div className="p-4 border-t border-border bg-secondary/50 text-right">
+                    <button onClick={onClose} className="px-4 py-2 bg-tertiary hover:bg-hover rounded-md text-sm text-text-primary">Close</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const FlowArrow: React.FC = () => (
     <div className="flex justify-center items-center my-1">
         <svg className="w-6 h-6 text-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -42,77 +144,147 @@ const FlowArrow: React.FC = () => (
     </div>
 );
 
-const FlowCard: React.FC<{ title: string; icon: React.ReactNode; children?: React.ReactNode; duration?: number; status: 'success' | 'failure' | 'info' }> = ({ title, icon, children, duration, status }) => {
+const FlowCard: React.FC<{ title: string; icon: React.ReactNode; children?: React.ReactNode; duration?: number; status: 'success' | 'failure' | 'info' | 'warning'; type?: string }> = ({ title, icon, children, duration, status, type }) => {
     const statusClasses = {
         success: 'border-success',
         failure: 'border-danger',
-        info: 'border-accent-secondary'
+        info: 'border-accent-secondary',
+        warning: 'border-yellow-500'
     };
     const borderClass = statusClasses[status];
     
     return (
-        <details className={`border rounded-lg border-l-4 ${borderClass} bg-secondary`} open>
-            <summary className="font-semibold flex items-center justify-between gap-2 p-3 cursor-pointer">
-                <div className="flex items-center gap-2">
+        <div className={`border rounded-lg border-l-4 ${borderClass} bg-secondary p-3`}>
+            <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 font-bold text-text-primary">
                     {icon} {title}
                 </div>
-                {duration !== undefined && <span className="text-xs text-text-secondary">{duration}ms</span>}
-            </summary>
-            {children && <div className="p-3 pt-0 text-sm space-y-2">{children}</div>}
-        </details>
+                <div className="flex items-center gap-2">
+                    {type && <span className="text-[10px] uppercase tracking-wider bg-tertiary px-1.5 py-0.5 rounded text-text-secondary">{type}</span>}
+                    {duration !== undefined && <span className="text-xs text-text-secondary">{duration}ms</span>}
+                </div>
+            </div>
+            {children && <div className="text-sm text-text-secondary space-y-2">{children}</div>}
+        </div>
     );
 };
 
-const ChatFlowDiagram: React.FC = () => (
-    <div className="space-y-2">
-        <FlowCard title="User Input" icon={<UserIcon className="w-5 h-5" />} status="info">
-            <p>The user sends a message to the character.</p>
-        </FlowCard>
-        <FlowArrow />
-        <FlowCard title="Character & System Data Loaded" icon={<DatabaseIcon className="w-5 h-5" />} status="info">
-            <ul className="list-disc list-inside pl-2 text-xs">
-                <li>Character Profile (Personality, Story, etc.) - <span className="font-semibold">Summarized version is prioritized.</span></li>
-                <li>Chat History</li>
-                <li>Current Character Stats</li>
-                <li>Current Narrative State</li>
-                <li>Global & AI Context Settings</li>
-            </ul>
-        </FlowCard>
-        <FlowArrow />
-        <FlowCard title="System Prompt Assembled" icon={<DocumentTextIcon className="w-5 h-5" />} status="info">
-            <p>All data is combined into a single, comprehensive prompt for the AI, including instructions, character sheet, and history.</p>
-        </FlowCard>
-        <FlowArrow />
-        <FlowCard title="API Call" icon={<ServerIcon className="w-5 h-5" />} status="info">
-            <p>The assembled prompt is sent to the selected AI model's API (e.g., Gemini or an OpenAI-compatible endpoint).</p>
-        </FlowCard>
-        <FlowArrow />
-        <FlowCard title="API Response Received" icon={<SparklesIcon className="w-5 h-5" />} status="info">
-            <p>The API returns a response. This can be:</p>
-            <ul className="list-disc list-inside pl-2 text-xs">
-                <li>A standard text message.</li>
-                <li>A function call to update stats.</li>
-                <li>A function call to update the narrative state.</li>
-                <li>A combination of the above.</li>
-            </ul>
-        </FlowCard>
-        <FlowArrow />
-        <FlowCard title="Response Processing" icon={<CpuChipIcon className="w-5 h-5" />} status="info">
-            <p>The system parses the response:</p>
-             <ul className="list-disc list-inside pl-2 text-xs">
-                <li>Extracts the character's reply text.</li>
-                <li>Applies any stat changes.</li>
-                <li>Updates the narrative state.</li>
-            </ul>
-        </FlowCard>
-        <FlowArrow />
-        <FlowCard title="Display to User" icon={<ChatBubbleIcon className="w-5 h-5" />} status="info">
-            <p>The final, formatted message is displayed in the chat window. Stat changes may be shown if enabled.</p>
-        </FlowCard>
-    </div>
-);
+const ArchitectureTab: React.FC = () => {
+    return (
+        <div className="space-y-8 p-4 sm:p-6">
+            <div className="mb-8">
+                <h2 className="text-2xl font-bold text-text-primary mb-2">Core Chat Engine</h2>
+                <p className="text-text-secondary mb-4">The Single-Pass Architecture handles dialogue, stats, and narrative in one API call for maximum efficiency.</p>
+                
+                <div className="max-w-3xl mx-auto space-y-2">
+                    <FlowCard title="1. User Input & Context" icon={<UserIcon className="w-5 h-5" />} status="info" type="INPUT">
+                        <p>User sends message. System retrieves:</p>
+                        <ul className="list-disc list-inside pl-2 text-xs">
+                            <li><strong>Character Profile:</strong> Summarized personality & scenario.</li>
+                            <li><strong>Stats:</strong> Current values (e.g., Trust: 50).</li>
+                            <li><strong>Narrative History:</strong> Recent plot events from the Journal.</li>
+                            <li><strong>Chat History:</strong> Last 50 messages.</li>
+                        </ul>
+                    </FlowCard>
+                    <FlowArrow />
+                    <FlowCard title="2. Protocol Assembly" icon={<DocumentTextIcon className="w-5 h-5" />} status="info" type="SYSTEM PROMPT">
+                        <p>System constructs a strict prompt enforcing:</p>
+                        <ul className="list-disc list-inside pl-2 text-xs">
+                            <li><strong>Mode:</strong> Haven vs Beyond (Safety limits).</li>
+                            <li><strong>Kid Mode:</strong> (If enabled) Language simplification.</li>
+                            <li><strong>Format:</strong> Forces JSON output schema.</li>
+                        </ul>
+                    </FlowCard>
+                    <FlowArrow />
+                    <FlowCard title="3. AI Processing (Single Pass)" icon={<CpuChipIcon className="w-5 h-5" />} status="success" type="LLM INFERENCE">
+                        <p>The model (Gemini/OpenAI) generates a <strong>single JSON object</strong> containing:</p>
+                        <ul className="list-disc list-inside pl-2 text-xs font-mono bg-tertiary p-2 rounded mt-1">
+                            <li>{"{"}</li>
+                            <li>&nbsp;&nbsp;"text": "The character's spoken reply...",</li>
+                            <li>&nbsp;&nbsp;"stat_updates": [ {"{"}"stat_name": "Trust", "value": 5 } ],</li>
+                            <li>&nbsp;&nbsp;"new_events": [ "User gave the artifact to the character" ]</li>
+                            <li>{"}"}</li>
+                        </ul>
+                    </FlowCard>
+                    <FlowArrow />
+                    <FlowCard title="4. Response Distribution" icon={<ServerIcon className="w-5 h-5" />} status="success" type="CLIENT UPDATE">
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                            <div className="bg-tertiary p-2 rounded">
+                                <ChatBubbleIcon className="w-4 h-4 mx-auto mb-1"/>
+                                <span className="text-xs font-bold">Chat UI</span>
+                                <p className="text-[10px]">Displays Text</p>
+                            </div>
+                            <div className="bg-tertiary p-2 rounded">
+                                <DatabaseIcon className="w-4 h-4 mx-auto mb-1"/>
+                                <span className="text-xs font-bold">DB (Stats)</span>
+                                <p className="text-[10px]">Updates Values</p>
+                            </div>
+                            <div className="bg-tertiary p-2 rounded">
+                                <BookIcon className="w-4 h-4 mx-auto mb-1"/>
+                                <span className="text-xs font-bold">Journal</span>
+                                <p className="text-[10px]">Appends Events</p>
+                            </div>
+                        </div>
+                    </FlowCard>
+                </div>
+            </div>
 
-// Helper to make background transparent by removing the color found at (0,0)
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                    <h3 className="text-xl font-bold text-text-primary mb-3 flex items-center gap-2"><SparklesIcon className="w-5 h-5"/> Image Generation Flow</h3>
+                    <div className="space-y-2">
+                        <FlowCard title="Prompt Construction" icon={<DocumentTextIcon className="w-4 h-4" />} status="info">
+                            <p className="text-xs">Combines Appearance, Mood, Situation, and Art Style settings into a descriptive prompt.</p>
+                        </FlowCard>
+                        <FlowArrow />
+                        <FlowCard title="Provider Selection" icon={<ServerIcon className="w-4 h-4" />} status="info">
+                            <p className="text-xs">Checks API Settings. Routes to <strong>Gemini (generateContent)</strong> or <strong>OpenAI (images/generations)</strong>.</p>
+                        </FlowCard>
+                        <FlowArrow />
+                        <FlowCard title="Safety & Output" icon={<ShieldCheckIcon className="w-4 h-4" />} status="success">
+                            <p className="text-xs">Handles safety refusals (Gemini). Returns Base64 image data for display/cropping.</p>
+                        </FlowCard>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 className="text-xl font-bold text-text-primary mb-3 flex items-center gap-2"><MicrophoneIcon className="w-5 h-5"/> Text-to-Speech Flow</h3>
+                    <div className="space-y-2">
+                        <FlowCard title="Text Input" icon={<ChatBubbleIcon className="w-4 h-4" />} status="info">
+                            <p className="text-xs">Character's message text is sent to the service.</p>
+                        </FlowCard>
+                        <FlowArrow />
+                        <FlowCard title="Audio Generation" icon={<CpuChipIcon className="w-4 h-4" />} status="info">
+                            <p className="text-xs">Uses <strong>Gemini (audio modality)</strong> or <strong>OpenAI (TTS)</strong> to generate a PCM/MP3 stream.</p>
+                        </FlowCard>
+                        <FlowArrow />
+                        <FlowCard title="Playback" icon={<SparklesIcon className="w-4 h-4" />} status="success">
+                            <p className="text-xs">Audio is decoded in browser AudioContext and played. Cached in memory to save API calls.</p>
+                        </FlowCard>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 className="text-xl font-bold text-text-primary mb-3 flex items-center gap-2"><ShieldCheckIcon className="w-5 h-5"/> AI Moderation Flow</h3>
+                    <div className="space-y-2">
+                        <FlowCard title="Content Scan" icon={<DocumentTextIcon className="w-4 h-4" />} status="info">
+                            <p className="text-xs">New comments/posts are sent to the background scanner.</p>
+                        </FlowCard>
+                        <FlowArrow />
+                        <FlowCard title="Analysis" icon={<CpuChipIcon className="w-4 h-4" />} status="info">
+                            <p className="text-xs">LLM analyzes content against categories (Hate, Sexual, etc.) and returns a JSON score.</p>
+                        </FlowCard>
+                        <FlowArrow />
+                        <FlowCard title="Enforcement" icon={<DatabaseIcon className="w-4 h-4" />} status="warning">
+                            <p className="text-xs">If violation detected -> Auto-creates <strong>AI Alert</strong> for Mods. Content may be auto-hidden.</p>
+                        </FlowCard>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 const makeBackgroundTransparent = (base64Data: string): Promise<string> => {
     return new Promise((resolve, reject) => {
         const img = new Image();
@@ -128,9 +300,8 @@ const makeBackgroundTransparent = (base64Data: string): Promise<string> => {
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const data = imageData.data;
 
-            // Get corner color (0,0)
             const r0 = data[0], g0 = data[1], b0 = data[2];
-            const tolerance = 30; // Tolerance for color matching
+            const tolerance = 30; 
 
             const isClose = (i: number) => {
                 const r = data[i];
@@ -143,17 +314,15 @@ const makeBackgroundTransparent = (base64Data: string): Promise<string> => {
 
             for (let i = 0; i < data.length; i += 4) {
                 if (isClose(i)) {
-                    data[i + 3] = 0; // Set alpha to 0 (transparent)
+                    data[i + 3] = 0;
                 }
             }
 
             ctx.putImageData(imageData, 0, 0);
-            // Return just the base64 data part
             resolve(canvas.toDataURL('image/png').split(',')[1]);
         };
         img.onerror = () => reject(new Error("Failed to load image for transparency processing"));
         
-        // Determine prefix. If raw base64, try to detect or default to png/jpeg
         if (base64Data.startsWith('iVBOR')) {
             img.src = `data:image/png;base64,${base64Data}`;
         } else {
@@ -162,7 +331,6 @@ const makeBackgroundTransparent = (base64Data: string): Promise<string> => {
     });
 };
 
-// --- Logo Editor Modal ---
 interface LogoEditorModalProps {
   imageUrl: string;
   onClose: () => void;
@@ -182,7 +350,7 @@ const LogoEditorModal: React.FC<LogoEditorModalProps> = ({ imageUrl, onClose, on
                 viewMode: 1,
                 dragMode: 'move',
                 autoCropArea: 0.8,
-                background: false, // Transparent background
+                background: false,
             });
             cropperRef.current = cropper;
         }
@@ -191,12 +359,21 @@ const LogoEditorModal: React.FC<LogoEditorModalProps> = ({ imageUrl, onClose, on
                 cropperRef.current.destroy();
             }
         };
-    }, [currentImage]); // Re-init if image changes
+    }, [currentImage]); 
 
     const handleRemoveBackground = async () => {
         if (!auth) return;
-        let connection = auth.findConnectionForModel('gemini-2.5-flash-image') 
-            || auth.apiConnections.find(c => c.isActive);
+        
+        let connection: ApiConnection | undefined;
+        let modelOverride: string | null = null;
+
+        const imageToolConfig = auth.getToolConfig?.('imageGeneration');
+        if (imageToolConfig) {
+            connection = imageToolConfig.connection;
+            modelOverride = imageToolConfig.model;
+        } else {
+             connection = auth.findConnectionForModel('gemini-2.5-flash-image') || auth.apiConnections.find(c => c.isActive);
+        }
 
         if (!connection) {
             alert("No active API connection found to process images.");
@@ -210,16 +387,13 @@ const LogoEditorModal: React.FC<LogoEditorModalProps> = ({ imageUrl, onClose, on
                 const canvas = cropperRef.current.getCroppedCanvas();
                  base64Data = canvas.toDataURL('image/png').split(',')[1];
             } else {
-                 // Simple extraction if it's a data URL
                  base64Data = currentImage.split(',')[1]; 
             }
             
-            // Prompt for a SOLID WHITE background, which we can then easily remove via canvas
             const prompt = "Isolate the logo and place it on a solid white background. Ensure the logo edges are clean and distinct. Do not alter the logo shape or colors.";
-            const processedBase64 = await editImage(base64Data, 'image/png', prompt, connection);
+            const processedBase64 = await editImage(base64Data, 'image/png', prompt, connection, modelOverride);
             
             if (processedBase64) {
-                // The AI usually returns a JPEG or opaque PNG. We must manually remove the white background.
                 const transparentBase64 = await makeBackgroundTransparent(processedBase64);
                 const newUrl = `data:image/png;base64,${transparentBase64}`;
                 setCurrentImage(newUrl);
@@ -291,15 +465,14 @@ const OverviewTab: React.FC = () => {
     const [localStorageSize, setLocalStorageSize] = useState('0 KB');
     const [logoEditorOpen, setLogoEditorOpen] = useState(false);
     const [logoFileToEdit, setLogoFileToEdit] = useState<string | null>(null);
+    const [showSummaryModal, setShowSummaryModal] = useState(false);
     const logoInputRef = useRef<HTMLInputElement>(null);
     
     useEffect(() => {
-        // Check IndexedDB
         const dbCheck = window.indexedDB.open('AIChatbotMarketplaceDB');
         dbCheck.onsuccess = () => { setDbStatus(true); dbCheck.result.close(); };
         dbCheck.onerror = () => setDbStatus(false);
         
-        // Calculate localStorage size
         let total = 0;
         for(let x in localStorage) {
             if (!localStorage.hasOwnProperty(x)) continue;
@@ -332,8 +505,8 @@ const OverviewTab: React.FC = () => {
         acc + Object.values(userHistory).reduce((userAcc: number, history: ChatMessage[]) => userAcc + history.length, 0), 0
     );
     const totalPosts = forumThreads.reduce((acc, thread) => acc + (getPostsForThread?.(thread.id)?.length || 0), 0);
-    const charsWithNarrativeSystem = characters.length; // Now all characters use it
-    const summarizedCharacters = characters.filter(c => c.summary && Object.keys(c.summary).length > 0).length;
+    const charsWithNarrativeSystem = characters.length;
+    const summarizedCharacters = characters.filter(isCharacterSummarized).length;
     
     const handleLogoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -342,7 +515,6 @@ const OverviewTab: React.FC = () => {
             reader.onload = () => {
                 setLogoFileToEdit(reader.result as string);
                 setLogoEditorOpen(true);
-                // Reset input so same file can be selected again
                 if (logoInputRef.current) logoInputRef.current.value = '';
             };
             reader.readAsDataURL(file);
@@ -447,7 +619,18 @@ const OverviewTab: React.FC = () => {
                 <InfoRow label="Total Users" value={String(allUsers.length)} />
                 <InfoRow label="Total Characters" value={String(characters.length)} />
                 <InfoRow label="Public / Private" value={`${characters.filter(c => c.isPublic).length} / ${characters.filter(c => !c.isPublic).length}`} />
-                <InfoRow label="Summarized Characters" value={`${summarizedCharacters} / ${characters.length}`} />
+                <InfoRow 
+                    label="Summarized Characters" 
+                    value={
+                        <button 
+                            onClick={() => setShowSummaryModal(true)} 
+                            className="font-mono bg-tertiary px-2 py-0.5 rounded hover:bg-accent-secondary hover:text-white cursor-pointer transition-colors"
+                            title="Click to view details"
+                        >
+                            {`${summarizedCharacters} / ${characters.length}`}
+                        </button>
+                    } 
+                />
                 <InfoRow label="Narrative System Users" value={`${charsWithNarrativeSystem} / ${characters.length}`} />
                 <InfoRow label="Total Chats" value={String(Object.values(chatHistories).reduce((acc: number, userHistory: any) => acc + Object.keys(userHistory).length, 0))}/>
                 <InfoRow label="Total Messages" value={String(totalMessages)} />
@@ -459,9 +642,6 @@ const OverviewTab: React.FC = () => {
                 <InfoRow label="Pending AI Alerts" value={String(aiAlerts.filter(a => a.status !== 'Resolved').length)} />
                 <InfoRow label="Open Tickets" value={String(tickets.filter(t => t.status !== 'Resolved').length)} />
             </Section>
-            <Section title="Static Chat Flow Diagram">
-                <ChatFlowDiagram />
-            </Section>
 
             {logoEditorOpen && logoFileToEdit && (
                 <LogoEditorModal 
@@ -470,12 +650,16 @@ const OverviewTab: React.FC = () => {
                     onSave={handleEditorSave} 
                 />
             )}
+            {showSummaryModal && (
+                <SummaryStatusModal 
+                    isOpen={showSummaryModal} 
+                    onClose={() => setShowSummaryModal(false)} 
+                    characters={characters} 
+                />
+            )}
         </div>
     );
 };
-
-
-// --- Multi-lane Simulation ---
 
 interface SimulationConfig {
     selectedCharId: string;
@@ -681,40 +865,48 @@ const LiveSimulationTab: React.FC = () => {
 };
 
 const SystemMonitorView: React.FC = () => {
-    const auth = useContext(AuthContext);
-    const [activeTab, setActiveTab] = useState('overview');
-    
-    if (!auth || auth.currentUser?.role !== 'Admin') return <p className="p-8 text-center text-red-400">Access Denied.</p>;
-
-    const tabs = [
-        { id: 'overview', label: 'System Overview' },
-        { id: 'live_sim', label: 'Live Simulation' },
-    ];
+    const [activeTab, setActiveTab] = useState<'overview' | 'architecture' | 'simulation'>('overview');
 
     return (
-        <div className="p-4 sm:p-6 md:p-8 w-full h-full flex flex-col">
-            <h1 className="text-3xl font-bold mb-6 text-text-primary flex items-center gap-3 flex-shrink-0"><SystemMonitorIcon className="w-8 h-8"/> System Monitor</h1>
-            <div className="border-b border-border mb-6 flex-shrink-0">
-                <nav className="-mb-px flex space-x-2 sm:space-x-6 overflow-x-auto" aria-label="Tabs">
-                    {tabs.map(tab => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id)}
-                            className={`${
-                                activeTab === tab.id
-                                ? 'border-accent-primary text-accent-primary'
-                                : 'border-transparent text-text-secondary hover:text-text-primary hover:border-border'
-                            } whitespace-nowrap py-4 px-1 sm:px-2 border-b-2 font-medium text-sm flex items-center gap-2`}
-                        >
-                            {tab.label}
-                        </button>
-                    ))}
-                </nav>
+        <div className="flex flex-col h-full bg-primary/95">
+            <div className="p-4 border-b border-border flex justify-between items-center bg-secondary/50 backdrop-blur-sm">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                    <SystemMonitorIcon className="w-6 h-6 text-accent-primary"/>
+                    <span>System Monitor</span>
+                </h2>
+                <div className="flex bg-primary rounded-lg p-1 border border-border">
+                    <button 
+                        onClick={() => setActiveTab('overview')}
+                        className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === 'overview' ? 'bg-accent-secondary text-white shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
+                    >
+                        Overview
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('architecture')}
+                        className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === 'architecture' ? 'bg-accent-secondary text-white shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
+                    >
+                        Architecture
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('simulation')}
+                        className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === 'simulation' ? 'bg-accent-secondary text-white shadow-sm' : 'text-text-secondary hover:text-text-primary'}`}
+                    >
+                        Live Simulation
+                    </button>
+                </div>
             </div>
-
-            <div className="bg-secondary p-4 sm:p-6 rounded-lg border border-border flex-1 overflow-y-auto">
-                {activeTab === 'overview' && <OverviewTab />}
-                {activeTab === 'live_sim' && <LiveSimulationTab />}
+            <div className="flex-1 overflow-hidden">
+                {activeTab === 'overview' && (
+                    <div className="h-full overflow-y-auto p-4 sm:p-6">
+                        <OverviewTab />
+                    </div>
+                )}
+                {activeTab === 'architecture' && (
+                    <div className="h-full overflow-y-auto p-4 sm:p-6">
+                        <ArchitectureTab />
+                    </div>
+                )}
+                {activeTab === 'simulation' && <LiveSimulationTab />}
             </div>
         </div>
     );
