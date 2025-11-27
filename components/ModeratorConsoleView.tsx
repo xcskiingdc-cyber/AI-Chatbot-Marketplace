@@ -1,4 +1,3 @@
-
 import React, { useState, useContext, useMemo, useEffect, useCallback, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { User, Character, Report, Ticket, AIAlert, DMConversation, DirectMessage, TicketStatus, Comment, UserType, TicketFolder, DMFolder, Notification, AIAlertStatus, AppView, ForumThread, ForumPost } from '../types';
@@ -12,6 +11,25 @@ interface DmUserContext {
     user: User;
     sourceFolder?: 'Reports' | 'Ticketing System' | 'AI Alerts';
 }
+
+const ImagePreview: React.FC<{ src: string; onRemove: () => void }> = ({ src, onRemove }) => (
+    <div className="relative inline-block m-2">
+        <img src={src} alt="Preview" className="h-20 w-20 object-cover rounded-md" />
+        <button onClick={onRemove} className="absolute -top-2 -right-2 bg-danger text-white rounded-full p-0.5 shadow-md">
+            <CloseIcon className="w-4 h-4" />
+        </button>
+    </div>
+);
+
+const DMImage: React.FC<{ imageId: string }> = ({ imageId }) => {
+    const imageUrl = imageId;
+    if (!imageUrl) return <div className="w-48 h-32 bg-tertiary animate-pulse rounded-md mt-2" />;
+    return (
+        <a href={imageUrl} target="_blank" rel="noopener noreferrer">
+            <img src={imageUrl} alt="Direct message content" className="max-w-xs max-h-64 rounded-md mt-2 object-contain" />
+        </a>
+    );
+};
 
 interface ModeratorConsoleViewProps {
   setSelectedCharacter: (character: Character) => void;
@@ -43,7 +61,6 @@ const ModeratorConsoleView: React.FC<ModeratorConsoleViewProps> = ({ setSelected
     
     const handleTabClick = (tabId: string) => {
         setActiveTab(tabId);
-        // Note: We removed auto-clearing here to allow manual clearing via button as requested
     };
 
 
@@ -51,36 +68,42 @@ const ModeratorConsoleView: React.FC<ModeratorConsoleViewProps> = ({ setSelected
         return <p className="p-8 text-center text-red-400">Access Denied.</p>;
     }
 
-    const { reports, aiAlerts, tickets, dmConversations, currentUser } = auth;
+    const { reports, aiAlerts, tickets, dmConversations, currentUser, markAdminNotificationsAsRead } = auth;
     
+    // Calculate unread counts based on actual pending items, not notifications
     const unreadNotifs = useMemo(() => {
-        const counts = { reports: 0, alerts: 0, tickets: 0 };
-        if (!currentUser?.profile.notifications) return counts;
-
-        currentUser.profile.notifications.forEach(n => {
-            if (!n.isRead) {
-                if (n.type === 'NEW_REPORT') counts.reports++;
-                if (n.type === 'NEW_AI_ALERT') counts.alerts++;
-                if (n.type === 'NEW_TICKET') counts.tickets++;
-            }
-        });
-        return counts;
-
-    }, [currentUser?.profile.notifications]);
+        return {
+            reports: reports.filter(r => !r.isResolved).length,
+            alerts: aiAlerts.filter(a => a.status !== 'Resolved').length,
+            tickets: tickets.filter(t => t.status !== 'Resolved').length
+        };
+    }, [reports, aiAlerts, tickets]);
 
     const unreadDMs = Object.values(dmConversations).filter((c: DMConversation) => c.hasUnreadByAdmin).length;
+    // The badge on the navbar sums these up, so we want a button that clears the "Mod" notifications specifically.
+    const totalUnreadModNotifications = unreadNotifs.reports + unreadNotifs.alerts + unreadNotifs.tickets;
 
     const tabs = [
         { id: 'reports', label: 'Reports', count: unreadNotifs.reports },
         { id: 'ai_alerts', label: 'AI Mod Alerts', count: unreadNotifs.alerts },
         { id: 'tickets', label: 'Ticketing System', count: unreadNotifs.tickets },
         { id: 'dms', label: 'Direct Messages', count: unreadDMs },
-        { id: 'forum', label: 'Forum Moderation', count: 0 }, // Count can be added later
+        { id: 'forum', label: 'Forum Moderation', count: 0 },
     ];
 
     return (
         <div className="p-4 sm:p-6 md:p-8 w-full h-full flex flex-col">
-            <h1 className="text-3xl font-bold mb-6 text-text-primary flex items-center gap-3 flex-shrink-0"><TicketIcon className="w-8 h-8"/> Moderator Console</h1>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4 flex-shrink-0">
+                <h1 className="text-3xl font-bold text-text-primary flex items-center gap-3"><TicketIcon className="w-8 h-8"/> Moderator Console</h1>
+                
+                <button 
+                    onClick={() => markAdminNotificationsAsRead?.(['NEW_REPORT', 'NEW_AI_ALERT', 'NEW_TICKET'])}
+                    className="px-4 py-2 rounded-md text-sm font-bold border transition-colors flex items-center gap-2 bg-secondary text-text-secondary border-border hover:bg-tertiary"
+                >
+                    Dismiss Notifications
+                </button>
+            </div>
+            
             <div className="border-b border-border mb-6 flex-shrink-0">
                 <nav className="-mb-px flex space-x-2 sm:space-x-6 overflow-x-auto" aria-label="Tabs">
                     {tabs.map(tab => (
@@ -133,9 +156,9 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ openDmForUser, setSelectedChara
     const [showResolved, setShowResolved] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [noteInputs, setNoteInputs] = useState<Record<string, string>>({});
-    const [deleteAction, setDeleteAction] = useState<{ type: 'character' | 'user' | 'comment', id: string, secondaryId?: string, name: string } | null>(null);
+    const [deleteAction, setDeleteAction] = useState<{ type: 'character' | 'user' | 'comment' | 'report', id: string, secondaryId?: string, name: string } | null>(null);
     
-    const { reports = [], findUserById, characters = [], silenceUser, deleteUser, deleteCharacter, silenceCharacter, deleteComment, resolveReport, addNoteToReport, silenceComment, markAdminNotificationsAsRead } = auth || ({} as any);
+    const { reports = [], findUserById, characters = [], silenceUser, deleteUser, deleteCharacter, silenceCharacter, deleteComment, resolveReport, addNoteToReport, silenceComment, deleteReport } = auth || ({} as any);
 
     const filteredReports = useMemo(() => {
          return reports
@@ -144,14 +167,14 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ openDmForUser, setSelectedChara
                 if (!searchTerm) return true;
                 const lowerSearch = searchTerm.toLowerCase();
                 const reporter = findUserById?.(r.reporterId);
-                const creator = findUserById?.(r.entityCreatorId || '');
+                const entityCreator = findUserById?.(r.entityCreatorId || '');
 
                 return (
                     r.reason.toLowerCase().includes(lowerSearch) ||
                     (r.description && r.description.toLowerCase().includes(lowerSearch)) ||
                     (r.contentSnapshot && r.contentSnapshot.toLowerCase().includes(lowerSearch)) ||
                     (reporter && reporter.profile.name.toLowerCase().includes(lowerSearch)) ||
-                    (creator && creator.profile.name.toLowerCase().includes(lowerSearch))
+                    (entityCreator && entityCreator.profile.name.toLowerCase().includes(lowerSearch))
                 );
             });
     }, [reports, showResolved, searchTerm, findUserById]);
@@ -180,22 +203,12 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ openDmForUser, setSelectedChara
         if (type === 'character') deleteCharacter?.(id);
         if (type === 'user') deleteUser?.(id);
         if (type === 'comment' && secondaryId) deleteComment?.(secondaryId, id);
+        if (type === 'report') deleteReport?.(id);
         setDeleteAction(null);
     }
 
     return (
         <div className="space-y-4">
-            <div className="flex justify-between items-center mb-2">
-                <h3 className="font-bold text-lg">Reports</h3>
-                {unreadCount > 0 && (
-                    <button 
-                        onClick={() => markAdminNotificationsAsRead?.(['NEW_REPORT'])}
-                        className="text-sm text-accent-secondary hover:underline"
-                    >
-                        Clear Notifications ({unreadCount})
-                    </button>
-                )}
-            </div>
             <TabFilter showResolved={showResolved} setShowResolved={setShowResolved}>
                 <input 
                     type="text"
@@ -228,9 +241,12 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ openDmForUser, setSelectedChara
                                     </h3>
                                     <p className="text-xs text-text-secondary">Reported by <button onClick={() => reporter && setSelectedCreator(reporter)} className="hover:underline font-semibold disabled:no-underline disabled:cursor-default" disabled={!reporter}>{reporter?.profile.name || 'Unknown User'}</button> on {new Date(report.timestamp).toLocaleString()}</p>
                                 </div>
-                                <span className={`px-2 py-1 text-xs rounded-full ${report.isResolved ? 'bg-success/20 text-success' : 'bg-warning/20 text-warning'}`}>
-                                    {report.isResolved ? 'Resolved' : 'Pending'}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                    <span className={`px-2 py-1 text-xs rounded-full ${report.isResolved ? 'bg-success/20 text-success' : 'bg-warning/20 text-warning'}`}>
+                                        {report.isResolved ? 'Resolved' : 'Pending'}
+                                    </span>
+                                    <button onClick={() => setDeleteAction({ type: 'report', id: report.id, name: 'Report' })} className="p-1 text-text-secondary hover:text-danger hover:bg-tertiary rounded" title="Delete Report"><DeleteIcon className="w-4 h-4"/></button>
+                                </div>
                             </div>
                             <div className="my-3 p-3 bg-tertiary rounded-md border-l-2 border-border">
                                 {report.description && <p className="mb-2"><strong className="text-text-secondary">Details:</strong> {report.description}</p>}
@@ -423,17 +439,6 @@ const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelec
 
     return (
         <div className="flex h-[75vh] flex-col">
-             <div className="flex justify-between items-center mb-2 px-2">
-                <h3 className="font-bold text-lg">AI Alerts</h3>
-                {unreadCount > 0 && (
-                    <button 
-                        onClick={() => markAdminNotificationsAsRead?.(['NEW_AI_ALERT'])}
-                        className="text-sm text-accent-secondary hover:underline"
-                    >
-                        Clear Notifications ({unreadCount})
-                    </button>
-                )}
-            </div>
             <div className="flex h-full">
                 <div className="w-2/5 xl:w-1/3 border-r border-border flex flex-col">
                     <div className="p-2 border-b border-border space-y-2 flex-shrink-0">
@@ -618,12 +623,13 @@ const AIModAlertsTab: React.FC<AIModAlertsTabProps> = ({ openDmForUser, setSelec
 
 const TicketingSystemTab: React.FC<{ openDmForUser: (user: User, sourceFolder: 'Ticketing System') => void; setSelectedCreator: (user: User) => void; unreadCount: number; }> = ({ openDmForUser, setSelectedCreator, unreadCount }) => {
     const auth = useContext(AuthContext);
-    const { tickets = [], findUserById, updateTicketStatus, ticketFolders, createTicketFolder, moveTicketToFolder, markAdminNotificationsAsRead } = auth || ({} as any);
+    const { tickets = [], findUserById, updateTicketStatus, ticketFolders, createTicketFolder, moveTicketToFolder, markAdminNotificationsAsRead, deleteTicket } = auth || ({} as any);
     
     const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
     const [selectedFolderId, setSelectedFolderId] = useState<string | null>('all'); // 'all', 'uncategorized', or a folder ID
     const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'status'>('newest');
     const [newFolderName, setNewFolderName] = useState('');
+    const [ticketToDelete, setTicketToDelete] = useState<Ticket | null>(null);
 
     useEffect(() => {
         if (selectedTicket) {
@@ -648,6 +654,14 @@ const TicketingSystemTab: React.FC<{ openDmForUser: (user: User, sourceFolder: '
             setNewFolderName('');
         }
     };
+    
+    const handleDeleteTicket = () => {
+        if(deleteTicket && ticketToDelete) {
+            deleteTicket(ticketToDelete.id);
+            setTicketToDelete(null);
+            if(selectedTicket?.id === ticketToDelete.id) setSelectedTicket(null);
+        }
+    }
 
     const sortedAndFilteredTickets = useMemo(() => {
         let filtered = tickets;
@@ -669,17 +683,6 @@ const TicketingSystemTab: React.FC<{ openDmForUser: (user: User, sourceFolder: '
 
     return (
         <div className="flex h-[75vh] flex-col">
-             <div className="flex justify-between items-center mb-2 px-2">
-                <h3 className="font-bold text-lg">Tickets</h3>
-                {unreadCount > 0 && (
-                    <button 
-                        onClick={() => markAdminNotificationsAsRead?.(['NEW_TICKET'])}
-                        className="text-sm text-accent-secondary hover:underline"
-                    >
-                        Clear Notifications ({unreadCount})
-                    </button>
-                )}
-            </div>
             <div className="flex h-full">
                 <div className="w-2/5 xl:w-1/3 border-r border-border flex flex-col">
                     <div className="p-2 border-b border-border space-y-2 flex-shrink-0">
@@ -723,7 +726,10 @@ const TicketingSystemTab: React.FC<{ openDmForUser: (user: User, sourceFolder: '
                             const submitter = findUserById?.(selectedTicket.submitterId);
                             return (
                                 <div className="flex flex-col h-full">
-                                    <h2 className="text-2xl font-bold border-b border-border pb-3 mb-3">{selectedTicket.subject}</h2>
+                                    <div className="border-b border-border pb-3 mb-3 flex justify-between items-start">
+                                        <h2 className="text-2xl font-bold">{selectedTicket.subject}</h2>
+                                        <button onClick={() => setTicketToDelete(selectedTicket)} className="text-danger hover:text-red-400 p-2 hover:bg-tertiary rounded-full" title="Delete Ticket"><DeleteIcon className="w-5 h-5"/></button>
+                                    </div>
                                     {submitter && (
                                         <div className="flex items-center gap-3 mb-4">
                                             <button onClick={() => setSelectedCreator(submitter)} className="flex items-center gap-3 hover:opacity-80">
@@ -765,32 +771,22 @@ const TicketingSystemTab: React.FC<{ openDmForUser: (user: User, sourceFolder: '
                     )}
                 </div>
             </div>
+            {ticketToDelete && (
+                <ConfirmationModal 
+                    title="Delete Ticket?"
+                    message="Are you sure you want to delete this ticket? This action cannot be undone."
+                    confirmText="Delete"
+                    onConfirm={handleDeleteTicket}
+                    onCancel={() => setTicketToDelete(null)}
+                />
+            )}
         </div>
-    );
-};
-
-const ImagePreview: React.FC<{ src: string; onRemove: () => void }> = ({ src, onRemove }) => (
-    <div className="relative inline-block m-2">
-        <img src={src} alt="Preview" className="h-20 w-20 object-cover rounded-md" />
-        <button onClick={onRemove} className="absolute -top-2 -right-2 bg-danger text-white rounded-full p-0.5 shadow-md">
-            <CloseIcon className="w-4 h-4" />
-        </button>
-    </div>
-);
-
-const DMImage: React.FC<{ imageId: string }> = ({ imageId }) => {
-    const imageUrl = imageId;
-    if (!imageUrl) return <div className="w-48 h-32 bg-tertiary animate-pulse rounded-md mt-2" />;
-    return (
-        <a href={imageUrl} target="_blank" rel="noopener noreferrer">
-            <img src={imageUrl} alt="Direct message content" className="max-w-xs max-h-64 rounded-md mt-2 object-contain" />
-        </a>
     );
 };
 
 const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, sourceFolder?: 'Reports' | 'Ticketing System' | 'AI Alerts' } | null, setSelectedCreator: (user: User) => void}> = ({ preselectedUserContext, setSelectedCreator }) => {
     const auth = useContext(AuthContext);
-    const { allUsers = [], dmConversations = {}, sendDirectMessage, findUserById, markDMAsReadByAdmin, dmFolders, createDMFolder, moveDMConversationToFolder, markAllDMsAsReadByAdmin, currentUser } = auth || ({} as any);
+    const { allUsers = [], dmConversations = {}, sendDirectMessage, findUserById, markDMAsReadByAdmin, dmFolders, createDMFolder, moveDMConversationToFolder, markAllDMsAsReadByAdmin, currentUser, deleteDMConversation } = auth || ({} as any);
     
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
     const [messageText, setMessageText] = useState('');
@@ -800,6 +796,7 @@ const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, source
     const [selectedFolderId, setSelectedFolderId] = useState<string | null>('all');
     const [newFolderName, setNewFolderName] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
+    const [threadToDelete, setThreadToDelete] = useState<User | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -862,6 +859,14 @@ const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, source
         }
     };
     
+    const handleDeleteThread = () => {
+        if(deleteDMConversation && threadToDelete) {
+            deleteDMConversation(threadToDelete.id);
+            setThreadToDelete(null);
+            if(selectedUser?.id === threadToDelete.id) setSelectedUser(null);
+        }
+    };
+    
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [selectedUser, dmConversations]);
@@ -920,7 +925,7 @@ const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, source
                 </div>
                 <div className="flex-1 overflow-y-auto">
                     {filteredUsers.map(user => (
-                         <button key={user.id} onClick={() => setSelectedUser(user)} className={`w-full text-left p-3 border-b border-border hover:bg-hover ${selectedUser?.id === user.id ? 'bg-hover' : ''}`}>
+                         <button key={user.id} onClick={() => setSelectedUser(user)} className={`w-full text-left p-3 border-b border-border hover:bg-hover ${selectedUser?.id === user.id ? 'bg-hover' : ''} group relative`}>
                             <div className="flex items-center gap-3">
                                 <Avatar imageId={user.profile.avatarUrl} alt={user.profile.name} className="w-10 h-10 rounded-full object-cover"/>
                                 <div className="flex-1 min-w-0">
@@ -930,6 +935,13 @@ const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, source
                                     </div>
                                     <p className="text-xs text-text-secondary truncate">{user.profile.email}</p>
                                 </div>
+                            </div>
+                            <div 
+                                onClick={(e) => { e.stopPropagation(); setThreadToDelete(user); }}
+                                className="absolute top-3 right-3 p-1.5 bg-tertiary hover:bg-danger hover:text-white text-text-secondary rounded opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                                title="Delete Thread"
+                            >
+                                <DeleteIcon className="w-4 h-4" />
                             </div>
                         </button>
                     ))}
@@ -1014,6 +1026,15 @@ const DirectMessagesTab: React.FC<{preselectedUserContext?: { user: User, source
                     </div>
                 )}
             </div>
+            {threadToDelete && (
+                <ConfirmationModal 
+                    title="Delete Conversation?"
+                    message={`Are you sure you want to permanently delete the conversation with ${threadToDelete.profile.name}? This cannot be undone.`}
+                    confirmText="Delete"
+                    onConfirm={handleDeleteThread}
+                    onCancel={() => setThreadToDelete(null)}
+                />
+            )}
         </div>
     );
 };

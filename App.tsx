@@ -237,9 +237,10 @@ const MainContent: React.FC = () => {
     }
   }, [publicCharacters, contentFilter, isUserAdult, searchTerm, sortOrder, characters, searchBy, findUserById, filterByFollowing, currentUser]);
 
-  const handleTicketSubmit = (ticket: Omit<Ticket, 'id' | 'submitterId' | 'status' | 'timestamp'>) => {
+  const handleTicketSubmit = async (ticket: Omit<Ticket, 'id' | 'submitterId' | 'status' | 'timestamp'>) => {
     if(!currentUser) return;
-    submitTicket(ticket);
+    // We must await this so errors propagate to the modal
+    await submitTicket(ticket);
     setTicketModalOpen(false);
     setSuccessModalOpen(true);
   };

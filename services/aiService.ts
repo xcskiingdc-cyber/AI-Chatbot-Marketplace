@@ -49,6 +49,9 @@ const callOpenAI = async (connection: ApiConnection, endpoint: string, body: any
     const constructUrl = (base: string, end: string) => `${base}${end}`;
 
     const performRequest = async (currentUrl: string, retryCount = 0): Promise<any> => {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), 60000); // 60s Timeout
+
         try {
             const response = await fetch(currentUrl, {
                 method: 'POST',
@@ -56,8 +59,10 @@ const callOpenAI = async (connection: ApiConnection, endpoint: string, body: any
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${connection.apiKey}`
                 },
-                body: JSON.stringify(body)
+                body: JSON.stringify(body),
+                signal: controller.signal
             });
+            clearTimeout(id);
 
             if (!response.ok) {
                 // Smart Retry for Local Providers on 404 (Base URL fix)
@@ -97,6 +102,10 @@ const callOpenAI = async (connection: ApiConnection, endpoint: string, body: any
 
             return await response.json();
         } catch (error: any) {
+            clearTimeout(id);
+            if (error.name === 'AbortError') {
+                throw new Error("Request timed out after 60 seconds.");
+            }
             // Retry on network failures
             if (retryCount < 2 && (error.name === 'TypeError' || error.message?.includes('Failed to fetch'))) {
                  await new Promise(resolve => setTimeout(resolve, 1000));
@@ -243,10 +252,29 @@ export const buildSystemPrompt = (
     prompt += `Gender: ${user.profile.gender}\n`;
 
     if (character.stats.length > 0) {
-        prompt += `\n### STATS & RELATIONSHIP\n`;
+        prompt += `\n### STATS & LOGIC RULES\n`;
+        prompt += `You must track and update the following stats based on the specific logic rules defined below. Adhere to these rules strictly.\n`;
+        
         character.stats.forEach(stat => {
             const val = currentStats[stat.id] ?? stat.initialValue;
-            prompt += `- ${stat.name}: ${val}/${stat.max}. (Behavior: ${stat.behaviorDescription})\n`;
+            prompt += `\n[STAT: ${stat.name}]\n`;
+            prompt += `   - Current Value: ${val}\n`;
+            prompt += `   - Valid Range: ${stat.min} to ${stat.max}\n`;
+            prompt += `   - Behavior Description: ${stat.behaviorDescription}\n`;
+            
+            if (stat.increaseRules.length > 0) {
+                prompt += `   - Increase Rules:\n`;
+                stat.increaseRules.forEach(rule => {
+                    prompt += `     * +${rule.value} if: ${rule.description}\n`;
+                });
+            }
+            
+            if (stat.decreaseRules.length > 0) {
+                prompt += `   - Decrease Rules:\n`;
+                stat.decreaseRules.forEach(rule => {
+                    prompt += `     * -${rule.value} if: ${rule.description}\n`;
+                });
+            }
         });
     }
 
@@ -288,7 +316,7 @@ export const generateChatResponseWithStats = async (
     const schema: Schema = {
         type: Type.OBJECT,
         properties: {
-            text: { type: Type.STRING, description: "The character's reply text." },
+            text: { type: Type.STRING, description: "The character's reply text. Use Markdown for actions (*italic*) and dialogue." },
             stat_updates: {
                 type: Type.ARRAY,
                 items: {
@@ -312,8 +340,8 @@ export const generateChatResponseWithStats = async (
     const jsonInstruction = `
     RESPONSE FORMAT:
     You MUST respond with a valid JSON object containing:
-    1. "text": Your roleplay reply.
-    2. "stat_updates": An array of objects { "stat_name": "Trust", "value_change": 5 } ONLY if specific stats defined in the context should change based on this interaction.
+    1. "text": Your roleplay reply. IMPORTANT: Use Markdown formatting (*italic* for actions, "quotes" for dialogue) INSIDE this string.
+    2. "stat_updates": An array of objects { "stat_name": "Trust", "value_change": 5 } ONLY if specific rules defined in the STATS section were triggered by this interaction.
     3. "new_events": An array of strings summarizing significant actions or plot developments in this turn (e.g., "User gave the potion", "Character revealed a secret"). Keep it empty if nothing major happened.
     `;
 
@@ -398,8 +426,10 @@ export const generateChatResponseWithStats = async (
             try {
                 jsonResponse = JSON.parse(content);
             } catch (e) {
-                // If JSON parse fails, treat whole content as text
-                return { statChanges: [], responseText: content, newNarrativeState: null };
+                // Fallback: If the model (e.g. HereHavenModel) ignores JSON instruction and outputs raw text,
+                // assume the entire content is the roleplay text.
+                console.warn("Failed to parse JSON from model response. Treating as raw text.");
+                jsonResponse = { text: content, stat_updates: [], new_events: [] };
             }
 
             // Process Stats
@@ -423,10 +453,11 @@ export const generateChatResponseWithStats = async (
             };
 
         } catch (error: any) {
-            // Fallback Logic for models that don't support JSON mode
+            // Fallback Logic for models that don't support JSON mode param at all
             if (error.message.includes('400') || error.message.includes('support')) {
                  delete body.response_format;
-                 // Remove JSON instruction from prompt to avoid confusion
+                 // Remove JSON instruction from prompt to avoid confusion, but we lose stat tracking here
+                 // Alternatively, keep instructions and try to regex parse. For now, safe fallback:
                  body.messages[0].content = systemPrompt; 
                  try {
                      const fallbackData = await callOpenAI(connection, '/chat/completions', body);
@@ -443,6 +474,116 @@ export const generateChatResponseWithStats = async (
                 newNarrativeState: null
             };
         }
+    }
+};
+
+export const generateChatResponseText = async (
+    character: Character,
+    chatHistory: ChatMessage[],
+    user: User,
+    globalSettings: GlobalSettings,
+    aiContext: AIContextSettings,
+    isKidMode: boolean,
+    model: string,
+    currentStats: Record<string, number>,
+    narrativeState: any,
+    connection: ApiConnection,
+    promptOverrides?: { haven?: string, beyondTheHaven?: string, kidMode?: string }
+): Promise<string> => {
+    const systemPrompt = buildSystemPrompt(character, user, globalSettings, aiContext, isKidMode, currentStats, narrativeState, undefined, promptOverrides);
+    return (await analyzeContent(systemPrompt, { text: chatHistory[chatHistory.length - 1].text }, connection, undefined, model)) || "Error generation response.";
+};
+
+export const analyzeInteractionForStats = async (
+    character: Character,
+    chatHistory: ChatMessage[],
+    lastUserMessage: string,
+    lastBotMessage: string,
+    currentStats: Record<string, number>,
+    connection: ApiConnection,
+    model: string
+): Promise<{ statChanges: { statId: string, valueChange: number }[], newEvents: string[] }> => {
+    
+    let statsContext = "";
+    if (character.stats.length > 0) {
+        statsContext = "STATS CONFIGURATION:\n";
+        character.stats.forEach(stat => {
+            const val = currentStats[stat.id] ?? stat.initialValue;
+            statsContext += `\n[${stat.name}]\n`;
+            statsContext += `Current: ${val} | Range: ${stat.min}-${stat.max}\n`;
+            statsContext += `Logic: ${stat.behaviorDescription}\n`;
+            if (stat.increaseRules.length > 0) {
+                statsContext += `Increase Rules: ${stat.increaseRules.map(r => `(+${r.value} if ${r.description})`).join(', ')}\n`;
+            }
+            if (stat.decreaseRules.length > 0) {
+                statsContext += `Decrease Rules: ${stat.decreaseRules.map(r => `(-${r.value} if ${r.description})`).join(', ')}\n`;
+            }
+        });
+    } else {
+        statsContext = "No specific stats tracked.";
+    }
+    
+    const prompt = `
+    Analyze the last interaction in a roleplay between User and Character (${character.name}).
+    
+    CONTEXT:
+    ${statsContext}
+    
+    INTERACTION:
+    User: "${lastUserMessage}"
+    Character: "${lastBotMessage}"
+    
+    TASK:
+    1. Did this interaction meet any specific INCREASE or DECREASE rules defined in the STATS CONFIGURATION? If so, determine the value change.
+    2. Summarize 1-2 key plot events that just happened.
+    
+    Respond ONLY in JSON:
+    {
+      "stat_updates": [ { "stat_name": "Trust", "value_change": 5 } ],
+      "new_events": [ "User offered a gift", "Character accepted the alliance" ]
+    }
+    `;
+
+    const schema: Schema = {
+        type: Type.OBJECT,
+        properties: {
+            stat_updates: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        stat_name: { type: Type.STRING },
+                        value_change: { type: Type.NUMBER }
+                    }
+                }
+            },
+            new_events: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+            }
+        }
+    };
+
+    try {
+        const result = await analyzeContent(prompt, {}, connection, schema, model);
+        if (!result) return { statChanges: [], newEvents: [] };
+        
+        const json = JSON.parse(result);
+        const statChanges: { statId: string, valueChange: number }[] = [];
+        
+        if (json.stat_updates && Array.isArray(json.stat_updates)) {
+            json.stat_updates.forEach((update: any) => {
+                const stat = character.stats.find(s => s.name.toLowerCase() === update.stat_name?.toLowerCase());
+                if (stat) {
+                    statChanges.push({ statId: stat.id, valueChange: update.value_change });
+                }
+            });
+        }
+        
+        return { statChanges, newEvents: json.new_events || [] };
+    } catch (e) {
+        console.error("Analysis failed", e);
+        return { statChanges: [], newEvents: [] };
     }
 };
 
@@ -521,7 +662,15 @@ export const generateCharacterImage = async (
             const response = await ai.models.generateContent({
                 model: modelName,
                 contents: { parts: [{ text: prompt }] },
-                config: { imageConfig: { aspectRatio: "3:4" } }
+                config: { 
+                    imageConfig: { aspectRatio: "3:4" },
+                    safetySettings: [
+                        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                    ],
+                }
             });
             
             // Extract image bytes from Gemini response
@@ -634,11 +783,20 @@ export const getTextToSpeech = async (text: string, voice: string, connection: A
             }
 
             const url = `${baseUrl}/audio/speech`;
+            
+            // Use performRequest/fetch equivalent with timeout if refactoring completely, 
+            // but here explicitly adding timeout logic similar to callOpenAI for safety
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), 60000); // 60s Timeout
+
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${connection.apiKey}` },
-                body: JSON.stringify(body)
+                body: JSON.stringify(body),
+                signal: controller.signal
             });
+            clearTimeout(id);
+
             if (!response.ok) throw new Error(`TTS API Error: ${response.statusText}`);
             const blob = await response.blob();
             return new Promise((resolve, reject) => {

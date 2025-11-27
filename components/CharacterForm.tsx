@@ -262,37 +262,41 @@ const CharacterForm: React.FC<CharacterFormProps> = ({ onSave, onCancel, existin
   };
   
   const constructImagePrompt = (): string => {
-    let prompt = `Generate a vertical portrait (3:4 aspect ratio) of a fictional character. The style should be dramatic and evocative, suitable for a story. Do not include any text, watermarks, or signatures in the image.\n\n`;
-    
-    prompt += `**Character Name:** ${character.name || 'Unnamed'}\n`;
-    prompt += `**Gender:** ${character.gender || 'unspecified'}\n`;
-    prompt += `**Appearance:** ${character.appearance || 'No specific appearance.'}\n`;
-    if (character.feeling) {
-        prompt += `**Current Mood:** ${character.feeling}\n`;
-    }
-    
-    if (character.situation) {
-        prompt += `**Current Situation & Environment:** ${character.situation}\n`;
-    }
-    if (character.personality) {
-        prompt += `**Key Personality Traits:** ${character.personality}\n`;
+    // Optimized for Gemini Image (Imagen) - less conversational, more tag/description based
+    const parts: string[] = [];
+
+    // 1. Core Subject
+    if (character.appearance && character.appearance.trim()) {
+        parts.push(character.appearance.trim());
+    } else {
+        parts.push(`Portrait of ${character.name || 'a character'}`);
+        if (character.gender && character.gender !== 'unspecified') parts.push(character.gender);
     }
 
-    prompt += `\n**Artistic Style Guidance:**\n`
-    if (artStyle !== 'no-preference') {
-        prompt += `**Art Style:** ${artStyle.replace(/-/g, ' ')}\n`;
-    }
-    if (colorPalette !== 'no-preference') {
-        prompt += `**Color Palette:** ${colorPalette.replace(/-/g, ' ')}\n`;
-    }
-    if (character.categories.length > 0) {
-        prompt += `**Genre/Theme:** ${character.categories.join(', ')}\n`;
-    }
-    if (styleKeywords.trim()) {
-        prompt += `**Additional Keywords:** ${styleKeywords.trim()}\n`;
+    // 2. Mood/Feeling
+    if (character.feeling && character.feeling.trim()) {
+        parts.push(`Mood: ${character.feeling.trim()}`);
     }
 
-    return prompt;
+    // 3. Situation/Environment (Background)
+    if (character.situation && character.situation.trim()) {
+        parts.push(`Setting: ${character.situation.trim()}`);
+    }
+
+    // 4. Style & Medium
+    const styleTerms = [];
+    if (artStyle !== 'no-preference') styleTerms.push(artStyle.replace(/-/g, ' '));
+    if (colorPalette !== 'no-preference') styleTerms.push(`${colorPalette.replace(/-/g, ' ')} color palette`);
+    if (styleKeywords.trim()) styleTerms.push(styleKeywords.trim());
+    
+    if (styleTerms.length > 0) {
+        parts.push(`Style: ${styleTerms.join(', ')}`);
+    } else {
+        parts.push("Style: Detailed, Cinematic Lighting, High Quality");
+    }
+
+    // Join with commas for a direct prompt
+    return parts.join(', ');
   };
 
   const handleGenerateImage = async () => {

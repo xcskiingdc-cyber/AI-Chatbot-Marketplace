@@ -4,6 +4,8 @@
 
 
 
+
+
 export const TTSVoices = {
   Kore: "Female - Calm",
   Zephyr: "Female - Warm",
@@ -284,7 +286,7 @@ export type AITool =
   | 'aiCharacterChat'
   | 'imageGeneration'
   | 'characterSummarization'
-  | 'narrativeSummarization'
+  | 'narrativeSummarization' // In "Split Mode", this handles logic/stats
   | 'textToSpeech'
   | 'textModeration'
   | 'imageModeration';
@@ -295,6 +297,7 @@ export interface ToolConfig {
 }
 
 export interface AIToolSettings {
+  architecture: 'single' | 'split';
   toolConfigs: Record<AITool, ToolConfig>;
 }
 

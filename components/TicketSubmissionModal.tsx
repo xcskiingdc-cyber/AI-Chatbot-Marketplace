@@ -1,23 +1,44 @@
 
 import React, { useState } from 'react';
 import { User, Ticket } from '../types';
-import { CloseIcon } from './Icons';
+import { CloseIcon, SpinnerIcon } from './Icons';
 
 interface TicketSubmissionModalProps {
   user: User;
   onClose: () => void;
-  onSubmit: (ticket: Omit<Ticket, 'id' | 'submitterId' | 'status' | 'timestamp'>) => void;
+  onSubmit: (ticket: Omit<Ticket, 'id' | 'submitterId' | 'status' | 'timestamp'>) => Promise<void>;
 }
 
 const TicketSubmissionModal: React.FC<TicketSubmissionModalProps> = ({ user, onClose, onSubmit }) => {
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
   const [email, setEmail] = useState(user.profile.email);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (subject.trim() && description.trim() && email.trim()) {
-      onSubmit({ subject, description, email });
+        setIsSubmitting(true);
+        setError(null);
+        try {
+            await onSubmit({ subject, description, email });
+            // onSubmit in parent handles closing on success
+        } catch (err: any) {
+            console.error("Ticket submission failed:", err);
+            let msg = "Failed to submit ticket.";
+            if (err?.message) {
+                msg = err.message;
+                // Postgrest error details
+                if (err.details) msg += ` (${err.details})`;
+                if (err.hint) msg += ` Hint: ${err.hint}`;
+            } else if (typeof err === 'object') {
+                try { msg = JSON.stringify(err); } catch {}
+            }
+            setError(msg);
+        } finally {
+            setIsSubmitting(false);
+        }
     } else {
       alert("Please fill out all fields.");
     }
@@ -37,6 +58,13 @@ const TicketSubmissionModal: React.FC<TicketSubmissionModalProps> = ({ user, onC
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <p className="text-sm text-text-secondary">Have a question, suggestion, or need to appeal a moderation action? Fill out the form below to contact an administrator.</p>
+          
+          {error && (
+            <div className="p-3 bg-danger/20 border border-danger/50 rounded-md text-danger text-sm break-words">
+                {error}
+            </div>
+          )}
+
           <div>
             <label htmlFor="subject" className={labelClasses}>Subject *</label>
             <input 
@@ -71,8 +99,19 @@ const TicketSubmissionModal: React.FC<TicketSubmissionModalProps> = ({ user, onC
             />
           </div>
           <div className="flex justify-end gap-4 pt-4">
-            <button type="button" onClick={onClose} className="px-6 py-2 bg-tertiary hover:bg-hover rounded-md transition-colors">Cancel</button>
-            <button type="submit" className="px-6 py-2 bg-accent-secondary hover:bg-accent-secondary-hover text-white rounded-md transition-colors">Send Ticket</button>
+            <button type="button" onClick={onClose} className="px-6 py-2 bg-tertiary hover:bg-hover rounded-md transition-colors" disabled={isSubmitting}>Cancel</button>
+            <button 
+                type="submit" 
+                className="px-6 py-2 bg-accent-secondary hover:bg-accent-secondary-hover text-white rounded-md transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isSubmitting}
+            >
+                {isSubmitting ? (
+                    <>
+                        <SpinnerIcon className="w-4 h-4 animate-spin" />
+                        <span>Sending...</span>
+                    </>
+                ) : 'Send Ticket'}
+            </button>
           </div>
         </form>
       </div>

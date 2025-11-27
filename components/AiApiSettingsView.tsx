@@ -1,14 +1,14 @@
 
 import React, { useState, useContext, useEffect, useMemo } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { ApiConnection, ApiProvider, AITool, ToolConfig } from '../types';
-import { PlusIcon, EditIcon, DeleteIcon, CloseIcon, SaveIcon, RefreshIcon, SpinnerIcon } from './Icons';
+import { ApiConnection, ApiProvider, AITool, ToolConfig, AIToolSettings } from '../types';
+import { PlusIcon, EditIcon, DeleteIcon, CloseIcon, SaveIcon, RefreshIcon, SpinnerIcon, CpuChipIcon, ServerIcon } from './Icons';
 import ConfirmationModal from './ConfirmationModal';
 
 const toolMetadata: Record<AITool, { name: string; description: string }> = {
     aiCharacterChat: {
-        name: 'AI Character Chat, Stats & Narrative',
-        description: 'The core engine. Handles generating character replies, calculating stat updates based on the conversation, and auto-updating the Story Journal with new events in a single pass.',
+        name: 'AI Character Chat',
+        description: 'The main model that generates the character\'s roleplay text response.',
     },
     imageGeneration: {
         name: 'Image Generation',
@@ -19,8 +19,8 @@ const toolMetadata: Record<AITool, { name: string; description: string }> = {
         description: 'Creates concise versions of character data for more efficient context.',
     },
     narrativeSummarization: {
-        name: 'Legacy Narrative (Deprecated)',
-        description: 'Deprecated. Narrative updates are now handled automatically by the main Chat model.',
+        name: 'Narrative & Logic Engine',
+        description: 'Analyzes the conversation to update character stats and the story journal. Active only in "Split Mode".',
     },
     textToSpeech: {
         name: 'Text-to-Speech (TTS)',
@@ -38,23 +38,31 @@ const toolMetadata: Record<AITool, { name: string; description: string }> = {
 
 const ToolConnectionSettings: React.FC = () => {
     const auth = useContext(AuthContext);
-    const { apiConnections = [], aiToolSettings, updateAIToolSettings } = auth!;
-    const [localSettings, setLocalSettings] = useState(aiToolSettings.toolConfigs);
+    const { apiConnections = [], aiToolSettings, updateAIToolSettings } = auth || {};
+    
+    // Safeguard against undefined auth or settings
+    const [localSettings, setLocalSettings] = useState<AIToolSettings>(aiToolSettings || { architecture: 'single', toolConfigs: {} as any });
     const [isSaved, setIsSaved] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
 
     // Sync local settings if global settings change (e.g. on initial load)
     useEffect(() => {
-        setLocalSettings(aiToolSettings.toolConfigs);
-    }, [aiToolSettings.toolConfigs]);
+        if (aiToolSettings) {
+            setLocalSettings(aiToolSettings);
+        }
+    }, [aiToolSettings]);
 
     const activeConnections = useMemo(() => apiConnections.filter(c => c.isActive), [apiConnections]);
 
     const handleConnectionChange = (tool: AITool, connectionId: string) => {
         setLocalSettings(prev => ({
             ...prev,
-            [tool]: {
-                connectionId: connectionId === 'none' ? null : connectionId,
-                modelOverride: null // Reset model when connection changes
+            toolConfigs: {
+                ...prev.toolConfigs,
+                [tool]: {
+                    connectionId: connectionId === 'none' ? null : connectionId,
+                    modelOverride: null // Reset model when connection changes
+                }
             }
         }));
     };
@@ -62,34 +70,107 @@ const ToolConnectionSettings: React.FC = () => {
     const handleModelChange = (tool: AITool, model: string) => {
         setLocalSettings(prev => ({
             ...prev,
-            [tool]: {
-                ...prev[tool],
-                modelOverride: model === 'default' ? null : model
+            toolConfigs: {
+                ...prev.toolConfigs,
+                [tool]: {
+                    ...prev.toolConfigs[tool],
+                    modelOverride: model === 'default' ? null : model
+                }
             }
         }));
     };
 
-    const handleSave = () => {
-        updateAIToolSettings({ toolConfigs: localSettings });
-        setIsSaved(true);
-        setTimeout(() => setIsSaved(false), 2500);
+    const handleArchitectureChange = (mode: 'single' | 'split') => {
+        setLocalSettings(prev => ({
+            ...prev,
+            architecture: mode
+        }));
     };
 
-    // Filter out narrativeSummarization from the UI as it is now merged into Chat
-    const visibleTools = Object.keys(toolMetadata).filter(key => key !== 'narrativeSummarization') as AITool[];
+    const handleSave = async () => {
+        if (!updateAIToolSettings) return;
+        
+        setIsSaving(true);
+        try {
+            await updateAIToolSettings(localSettings);
+            setIsSaved(true);
+            setTimeout(() => setIsSaved(false), 2500);
+        } catch (error: any) {
+            console.error("Failed to save tool settings:", error);
+            let errorMessage = "Unknown error";
+            if (typeof error === 'string') errorMessage = error;
+            else if (error instanceof Error) errorMessage = error.message;
+            else if (typeof error === 'object') {
+                try { errorMessage = JSON.stringify(error); } catch {}
+            }
+            alert(`Failed to save settings: ${errorMessage}`);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // Only show Narrative Engine config if we are in Split Mode
+    const visibleTools = Object.keys(toolMetadata).filter(key => {
+        if (localSettings.architecture === 'single' && key === 'narrativeSummarization') return false;
+        return true;
+    }) as AITool[];
 
     return (
         <div>
+            {/* Architecture Configuration */}
+            <div className="mb-8 p-6 bg-secondary/30 border border-border rounded-lg">
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                    <CpuChipIcon className="w-6 h-6 text-accent-secondary" />
+                    System Architecture
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <button 
+                        onClick={() => handleArchitectureChange('single')}
+                        className={`text-left p-4 rounded-lg border-2 transition-all ${localSettings.architecture === 'single' ? 'border-success bg-success/10' : 'border-border bg-primary hover:bg-tertiary'}`}
+                    >
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="font-bold text-lg">Single State (Unified)</span>
+                            {localSettings.architecture === 'single' && <span className="text-success font-bold">Active</span>}
+                        </div>
+                        <p className="text-sm text-text-secondary">
+                            The Chat Model handles everything in one API call: Roleplay Text, Stat Updates, and Narrative Events.
+                        </p>
+                        <div className="mt-3 text-xs text-text-secondary flex gap-2">
+                            <span className="bg-primary px-2 py-1 rounded border border-border">Fast Response</span>
+                            <span className="bg-primary px-2 py-1 rounded border border-border">Lower Cost</span>
+                        </div>
+                    </button>
+
+                    <button 
+                        onClick={() => handleArchitectureChange('split')}
+                        className={`text-left p-4 rounded-lg border-2 transition-all ${localSettings.architecture === 'split' ? 'border-accent-primary bg-accent-primary/10' : 'border-border bg-primary hover:bg-tertiary'}`}
+                    >
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="font-bold text-lg">Split Mode</span>
+                            {localSettings.architecture === 'split' && <span className="text-accent-primary font-bold">Active</span>}
+                        </div>
+                        <p className="text-sm text-text-secondary">
+                            Separates Chat and Logic. One call for text, a second separate call for Stats/Narrative logic. Allows using a cheaper model for chat and a smarter model for logic.
+                        </p>
+                        <div className="mt-3 text-xs text-text-secondary flex gap-2">
+                            <span className="bg-primary px-2 py-1 rounded border border-border">Higher Quality Logic</span>
+                            <span className="bg-primary px-2 py-1 rounded border border-border">Separate Control</span>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
             <h2 className="text-2xl font-bold mb-4">Tool Connections & Models</h2>
             <p className="text-sm text-text-secondary mb-6">Assign a specific active API connection and model to each system function. If 'Default Model' is selected, the system will use the first model available in that connection. If a tool is set to 'Disabled', the feature will not be available.</p>
+            
             <div className="space-y-4">
                 {visibleTools.map(toolKey => {
                     const tool = toolKey as AITool;
-                    const config = localSettings[tool] || { connectionId: null, modelOverride: null };
+                    const config = localSettings.toolConfigs[tool] || { connectionId: null, modelOverride: null };
                     const selectedConnection = activeConnections.find(c => c.id === config.connectionId);
 
                     return (
-                        <div key={tool} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 p-4 bg-primary border border-border rounded-lg">
+                        <div key={tool} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 p-4 bg-primary border border-border rounded-lg animate-fade-in">
                             <div className="flex-1">
                                 <h4 className="font-semibold">{toolMetadata[tool].name}</h4>
                                 <p className="text-xs text-text-secondary">{toolMetadata[tool].description}</p>
@@ -140,9 +221,14 @@ const ToolConnectionSettings: React.FC = () => {
                             ? 'bg-success text-white cursor-default' 
                             : 'bg-accent-secondary text-white hover:bg-accent-secondary-hover'
                     }`}
-                    disabled={isSaved}
+                    disabled={isSaving || isSaved}
                 >
-                    {isSaved ? (
+                    {isSaving ? (
+                        <>
+                            <SpinnerIcon className="w-5 h-5 animate-spin" />
+                            Saving...
+                        </>
+                    ) : isSaved ? (
                         <>
                             <SaveIcon className="w-5 h-5" />
                             Saved Tool Configuration
@@ -179,7 +265,7 @@ const ApiConnectionModal: React.FC<{
             setModelsStr(existingConnection.models.join(', '));
         } else {
             setConnection({ name: '', provider: 'Gemini', apiKey: '', baseUrl: '', models: [], isActive: true });
-            setModelsStr('gemini-2.5-flash, gemini-2.5-flash-image, gemini-2.5-flash-preview-tts');
+            setModelsStr('gemini-2.5-flash, gemini-3-pro-preview, gemini-2.5-flash-image, gemini-2.5-flash-preview-tts');
         }
     }, [existingConnection, isOpen]);
 

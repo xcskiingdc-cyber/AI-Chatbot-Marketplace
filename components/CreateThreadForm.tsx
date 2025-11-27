@@ -16,11 +16,13 @@ const CreateThreadForm: React.FC<CreateThreadFormProps> = ({ categoryId, setView
     const [content, setContent] = useState('');
     const [tags, setTags] = useState<string>('');
     const [error, setError] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const category = forumCategories?.find(c => c.id === categoryId);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setError('');
         if (!title.trim() || !content.trim()) {
             setError('Title and content are required.');
             return;
@@ -29,6 +31,8 @@ const CreateThreadForm: React.FC<CreateThreadFormProps> = ({ categoryId, setView
             setError('You must be logged in to create a thread.');
             return;
         }
+
+        setIsSubmitting(true);
 
         const newThread: Omit<ForumThread, 'id' | 'createdAt' | 'viewCount' | 'isSilenced'> = {
             categoryId,
@@ -41,8 +45,15 @@ const CreateThreadForm: React.FC<CreateThreadFormProps> = ({ categoryId, setView
 
         const initialPostContent = content.trim();
 
-        const createdThreadId = await createThread(newThread, initialPostContent);
-        setView({ type: 'FORUM_THREAD', threadId: createdThreadId });
+        try {
+            const createdThreadId = await createThread(newThread, initialPostContent);
+            setView({ type: 'FORUM_THREAD', threadId: createdThreadId });
+        } catch (err: any) {
+            console.error("Thread creation failed:", err);
+            setError(err.message || "Failed to create thread. Please try again.");
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     if (!category) {
@@ -101,7 +112,10 @@ const CreateThreadForm: React.FC<CreateThreadFormProps> = ({ categoryId, setView
 
                 <div className="flex justify-end space-x-4 pt-4">
                     <button type="button" onClick={() => setView({ type: 'FORUM_CATEGORY', categoryId })} className="px-6 py-2 bg-tertiary hover:bg-hover rounded-md transition-colors">Cancel</button>
-                    <button type="submit" className="px-6 py-2 bg-accent-secondary hover:bg-accent-secondary-hover text-white rounded-md transition-colors">Post Thread</button>
+                    <button type="submit" disabled={isSubmitting} className="px-6 py-2 bg-accent-secondary hover:bg-accent-secondary-hover text-white rounded-md transition-colors disabled:bg-tertiary flex items-center gap-2">
+                        {isSubmitting && <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>}
+                        Post Thread
+                    </button>
                 </div>
             </form>
         </div>

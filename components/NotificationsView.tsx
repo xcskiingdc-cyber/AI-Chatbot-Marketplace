@@ -1,8 +1,7 @@
 
-
 import React, { useEffect, useState, useMemo, useContext, useRef } from 'react';
 import type { User, AppView, Character, Notification, DMConversation, DirectMessage } from '../types';
-import { BellIcon, MessageIcon, SendIcon, UploadIcon, CloseIcon } from './Icons';
+import { BellIcon, MessageIcon, SendIcon, UploadIcon, CloseIcon, DeleteIcon, SpinnerIcon } from './Icons';
 import { AuthContext } from '../context/AuthContext';
 import Avatar from './Avatar';
 
@@ -27,11 +26,12 @@ const DMImage: React.FC<{ imageId: string }> = ({ imageId }) => {
 
 const MessagesTab: React.FC = () => {
     const auth = useContext(AuthContext);
-    // Ensure dmConversations is typed correctly
     const dmConversations = auth?.dmConversations as Record<string, DMConversation> | undefined;
     const currentUser = auth?.currentUser;
     const sendDirectMessage = auth?.sendDirectMessage;
     const markDMAsReadByUser = auth?.markDMAsReadByUser;
+    const markAllDMsAsReadByUser = auth?.markAllDMsAsReadByUser;
+    const markCategoryAsRead = auth?.markCategoryAsRead;
     
     const [selectedConversation, setSelectedConversation] = useState<DMConversation | null>(null);
     const [messageText, setMessageText] = useState('');
@@ -40,10 +40,21 @@ const MessagesTab: React.FC = () => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
+    // Clear notifications on mount
+    useEffect(() => {
+        if (markCategoryAsRead) {
+            markCategoryAsRead('Messages');
+        }
+    }, []);
+
     const conversations = useMemo(() => {
         if (!currentUser || !dmConversations) return [];
         return Object.values(dmConversations).filter((convo: DMConversation) => convo.userId === currentUser.id);
     }, [currentUser, dmConversations]);
+    
+    const hasUnread = useMemo(() => {
+        return conversations.some(c => c.hasUnreadByUser);
+    }, [conversations]);
     
     useEffect(() => {
         if (conversations.length > 0 && !selectedConversation) {
@@ -121,9 +132,19 @@ const MessagesTab: React.FC = () => {
     
     return (
         <div className="border border-border rounded-lg overflow-hidden h-[70vh] flex flex-col">
-            <div className="p-3 border-b border-border flex items-center gap-3 bg-tertiary">
-                {adminUser && <Avatar imageId={adminUser.profile.avatarUrl} alt={adminUser.profile.name} className="w-10 h-10 rounded-full object-cover" />}
-                <h3 className="font-bold text-lg">Messages with Admin</h3>
+            <div className="p-3 border-b border-border flex items-center justify-between bg-tertiary">
+                <div className="flex items-center gap-3">
+                    {adminUser && <Avatar imageId={adminUser.profile.avatarUrl} alt={adminUser.profile.name} className="w-10 h-10 rounded-full object-cover" />}
+                    <h3 className="font-bold text-lg">Messages with Admin</h3>
+                </div>
+                {hasUnread && (
+                    <button 
+                        onClick={() => markAllDMsAsReadByUser?.()} 
+                        className="text-sm font-medium text-accent-secondary hover:underline"
+                    >
+                        Mark all as read
+                    </button>
+                )}
             </div>
             <div className="flex-1 p-4 space-y-4 overflow-y-auto bg-primary">
                {selectedConversation?.messages.map(msg => {
@@ -176,6 +197,8 @@ const NotificationsTab: React.FC<{
     category: 'Following' | 'My Characters' | 'Replies',
 }> = ({ user, onCharacterClick, onCreatorClick, category }) => {
     const auth = React.useContext(AuthContext);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const { notifications, unreadCount } = useMemo(() => {
         const allNotifs = user.profile.notifications || [];
@@ -194,12 +217,53 @@ const NotificationsTab: React.FC<{
         };
     }, [user.profile.notifications, category]);
     
-     const handleNotificationClick = (notification: Notification) => {
+    useEffect(() => {
+        // Clear selection when switching categories
+        setSelectedIds(new Set());
+    }, [category]);
+
+    const handleNotificationClick = (notification: Notification) => {
         auth?.markSingleNotificationAsRead(notification.id);
         if (['NEW_BOT', 'NEW_LIKE', 'NEW_COMMENT', 'REPLY'].includes(notification.type)) {
             const character = auth?.characters.find(c => c.id === notification.relatedId);
             if (character) {
                 onCharacterClick(character);
+            }
+        }
+    };
+
+    const handleSelectAll = () => {
+        if (selectedIds.size === notifications.length) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(notifications.map(n => n.id)));
+        }
+    };
+
+    const toggleSelection = (id: string) => {
+        const newSet = new Set(selectedIds);
+        if (newSet.has(id)) {
+            newSet.delete(id);
+        } else {
+            newSet.add(id);
+        }
+        setSelectedIds(newSet);
+    };
+
+    const handleDeleteSelected = async () => {
+        if (auth?.deleteNotifications && selectedIds.size > 0) {
+            if (window.confirm(`Are you sure you want to delete ${selectedIds.size} notification${selectedIds.size > 1 ? 's' : ''}?`)) {
+                setIsDeleting(true);
+                try {
+                    // Optimistically delete - await the promise to ensure DB call starts, but auth context handles UI update instantly
+                    await auth.deleteNotifications(Array.from(selectedIds));
+                    setSelectedIds(new Set());
+                } catch (error) {
+                    console.error("Error deleting notifications:", error);
+                    alert("Failed to delete notifications. Please try again.");
+                } finally {
+                    setIsDeleting(false);
+                }
             }
         }
     };
@@ -248,8 +312,30 @@ const NotificationsTab: React.FC<{
     
     return (
         <div>
-             {unreadCount > 0 && (
-                <div className="flex justify-end mb-4">
+            <div className="flex justify-between items-center mb-4">
+                 <div className="flex items-center space-x-2">
+                    <input 
+                        type="checkbox" 
+                        checked={notifications.length > 0 && selectedIds.size === notifications.length}
+                        onChange={handleSelectAll}
+                        className="form-checkbox h-5 w-5 text-accent-primary bg-secondary border-border rounded focus:ring-accent-primary cursor-pointer"
+                        disabled={notifications.length === 0 || isDeleting}
+                    />
+                    <span className="text-text-secondary text-sm">Select All</span>
+                    
+                    {selectedIds.size > 0 && (
+                        <button 
+                            onClick={handleDeleteSelected}
+                            disabled={isDeleting}
+                            className="ml-4 text-sm font-medium text-danger hover:underline flex items-center gap-1 disabled:opacity-50"
+                        >
+                            {isDeleting ? <SpinnerIcon className="w-4 h-4 animate-spin"/> : <DeleteIcon className="w-4 h-4" />} 
+                            {isDeleting ? 'Deleting...' : `Delete Selected (${selectedIds.size})`}
+                        </button>
+                    )}
+                 </div>
+
+                 {unreadCount > 0 && (
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
@@ -259,39 +345,50 @@ const NotificationsTab: React.FC<{
                     >
                         Mark all as read in this category
                     </button>
-                </div>
-            )}
+                )}
+            </div>
+
             <div className="space-y-3">
                 {notifications.map(notification => {
                     const character = auth?.characters.find(c => c.id === notification.relatedId);
                     const isClickable = !!character || notification.type === 'NEW_FOLLOWER';
                     return (
-                        <div
-                            key={notification.id}
-                            onClick={() => isClickable && handleNotificationClick(notification)}
-                            className={`p-4 bg-secondary rounded-lg transition-colors duration-200 group relative flex items-start space-x-4 ${isClickable ? 'cursor-pointer hover:bg-hover' : ''}`}
-                        >
-                            <div className={`mt-1 flex-shrink-0 h-2 w-2 rounded-full ${notification.isRead ? 'bg-tertiary' : 'bg-accent-primary'}`}></div>
-                            
-                            {notification.type === 'NEW_BOT' && character ? (
-                                <>
-                                    <Avatar imageId={character.avatarUrl} alt={character.name} className="w-12 h-12 rounded-md object-cover flex-shrink-0" />
+                        <div key={notification.id} className="flex items-start space-x-3 group">
+                             <div className="pt-4">
+                                <input 
+                                    type="checkbox"
+                                    checked={selectedIds.has(notification.id)}
+                                    onChange={(e) => { e.stopPropagation(); toggleSelection(notification.id); }}
+                                    className="form-checkbox h-5 w-5 text-accent-primary bg-secondary border-border rounded focus:ring-accent-primary cursor-pointer"
+                                    disabled={isDeleting}
+                                />
+                             </div>
+                            <div
+                                onClick={() => isClickable && handleNotificationClick(notification)}
+                                className={`flex-1 p-4 bg-secondary rounded-lg transition-colors duration-200 relative flex items-start space-x-4 ${isClickable ? 'cursor-pointer hover:bg-hover' : ''}`}
+                            >
+                                <div className={`mt-1 flex-shrink-0 h-2 w-2 rounded-full ${notification.isRead ? 'bg-tertiary' : 'bg-accent-primary'}`}></div>
+                                
+                                {notification.type === 'NEW_BOT' && character ? (
+                                    <>
+                                        <Avatar imageId={character.avatarUrl} alt={character.name} className="w-12 h-12 rounded-md object-cover flex-shrink-0" />
+                                        <div className="flex-1">
+                                            <p className={`text-text-secondary ${!notification.isRead ? 'text-text-primary' : ''}`}>
+                                              {renderMessage(notification)}
+                                            </p>
+                                            <p className="text-sm text-text-secondary mt-1 p-2 bg-tertiary rounded-md border-l-2 border-border truncate">{character.description}</p>
+                                            <p className="text-xs text-gray-500 mt-2">{new Date(notification.timestamp).toLocaleString()}</p>
+                                        </div>
+                                    </>
+                                ) : (
                                     <div className="flex-1">
                                         <p className={`text-text-secondary ${!notification.isRead ? 'text-text-primary' : ''}`}>
-                                          {renderMessage(notification)}
+                                            {renderMessage(notification)}
                                         </p>
-                                        <p className="text-sm text-text-secondary mt-1 p-2 bg-tertiary rounded-md border-l-2 border-border truncate">{character.description}</p>
-                                        <p className="text-xs text-gray-500 mt-2">{new Date(notification.timestamp).toLocaleString()}</p>
+                                        <p className="text-xs text-gray-500 mt-1">{new Date(notification.timestamp).toLocaleString()}</p>
                                     </div>
-                                </>
-                            ) : (
-                                <div className="flex-1">
-                                    <p className={`text-text-secondary ${!notification.isRead ? 'text-text-primary' : ''}`}>
-                                        {renderMessage(notification)}
-                                    </p>
-                                    <p className="text-xs text-gray-500 mt-1">{new Date(notification.timestamp).toLocaleString()}</p>
-                                </div>
-                            )}
+                                )}
+                            </div>
                         </div>
                     );
                 })}
